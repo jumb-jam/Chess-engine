@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gamestate.h"
 #include <vector>
 
 struct Move{
@@ -37,6 +38,10 @@ private:
 
 public:
     void init_board();
+
+    GameState save_state() const;
+
+    void restore_state(const GameState& state);
 
     bool is_white_turn();
 

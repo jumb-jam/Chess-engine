@@ -20,11 +20,13 @@ int Engine::minimax(Board& board, int depth){
 
         for(Move& m : moves){
 
+            GameState state = board.save_state();
             board.make_move(m);
 
             int score = minimax(board, depth - 1);
 
             board.undo_move(m);
+            board.restore_state(state);
 
             if(score > bestScore){
                 bestScore = score;
@@ -40,11 +42,13 @@ int Engine::minimax(Board& board, int depth){
 
         for(Move& m : moves){
 
+            GameState state = board.save_state();
             board.make_move(m);
 
             int score = minimax(board, depth - 1);
 
             board.undo_move(m);
+            board.restore_state(state);
 
             if(score < bestScore){
                 bestScore = score;

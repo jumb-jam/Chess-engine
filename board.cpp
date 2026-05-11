@@ -4,7 +4,7 @@
 
 #include "board.h"
 
-// need to keep track of prev castling rights etc etc for undoing
+// implemented prev states, now need to improve evaluation algo
 
 void Board::init_board(){
     for(int i=0;i<8;i++){
@@ -31,6 +31,50 @@ void Board::init_board(){
     board[7][0]=4;
     board[0][7]=-4;
     board[7][7]=4;
+}
+
+GameState Board::save_state() const{
+
+    GameState state;
+
+    state.whiteTurn = whiteTurn;
+
+    state.whiteKingMoved = whiteKingMoved;
+    state.blackKingMoved = blackKingMoved;
+
+    state.whiteKingsideRookMoved = whiteKingsideRookMoved;
+
+    state.whiteQueensideRookMoved = whiteQueensideRookMoved;
+
+    state.blackKingsideRookMoved = blackKingsideRookMoved;
+
+    state.blackQueensideRookMoved = blackQueensideRookMoved;
+
+    state.enPassantRow = enPassantRow;
+    state.enPassantCol = enPassantCol;
+
+    return state;
+}
+
+void Board::restore_state(const GameState& state){
+
+    whiteTurn = state.whiteTurn;
+
+    whiteKingMoved = state.whiteKingMoved;
+
+    blackKingMoved = state.blackKingMoved;
+
+    whiteKingsideRookMoved = state.whiteKingsideRookMoved;
+
+    whiteQueensideRookMoved = state.whiteQueensideRookMoved;
+
+    blackKingsideRookMoved = state.blackKingsideRookMoved;
+
+    blackQueensideRookMoved = state.blackQueensideRookMoved;
+
+    enPassantRow = state.enPassantRow;
+
+    enPassantCol = state.enPassantCol;
 }
 
 bool Board::is_white_turn(){
