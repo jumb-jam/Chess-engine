@@ -32,6 +32,9 @@ private:
     bool blackKingsideRookMoved = false;
     bool blackQueensideRookMoved = false;
 
+    int enPassantRow = -1;
+    int enPassantCol = -1;
+
 public:
     void init_board();
 
