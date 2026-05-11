@@ -39,6 +39,8 @@ private:
 public:
     void init_board();
 
+    void print_board();
+
     GameState save_state() const;
 
     void restore_state(const GameState& state);
@@ -47,7 +49,7 @@ public:
 
     int get_piece(int row, int col);
 
-    bool make_move(Move m);
+    bool make_move(Move& m);
 
     bool is_valid_move(const Move& m);
 

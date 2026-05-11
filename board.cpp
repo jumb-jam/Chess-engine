@@ -33,6 +33,45 @@ void Board::init_board(){
     board[7][7]=4;
 }
 
+void Board::print_board(){
+    for(int row = 0; row < 8; row++){
+        for(int col = 0; col < 8; col++){
+
+            int piece = board[row][col];
+
+            char symbol = '.';
+
+            switch(abs(piece)){
+                case 1:
+                    symbol = 'p';
+                    break;
+                case 2:
+                    symbol = 'b';
+                    break;
+                case 3:
+                    symbol = 'n';
+                    break;
+                case 4:
+                    symbol = 'r';
+                    break;
+                case 5:
+                    symbol = 'q';
+                    break;
+                case 6:
+                    symbol = 'k';
+                    break;
+            }
+
+            if(piece < 0){
+                symbol = toupper(symbol);
+            }
+            std::cout << symbol << " ";
+        }
+        std::cout << "\n";
+    }
+    std::cout << "\n";
+}
+
 GameState Board::save_state() const{
 
     GameState state;
@@ -85,7 +124,7 @@ int Board::get_piece(int row,int col){
     return board[row][col];
 }
 
-bool Board::make_move(Move m){
+bool Board::make_move(Move& m){
 
     int piece = get_piece(m.fromRow,m.fromCol);
 
