@@ -365,7 +365,7 @@ std::vector<Move> Board::generate_moves(){
         undo_move(m);
     }
 
-    return moves;
+    return legalMoves;
 
 }
 
