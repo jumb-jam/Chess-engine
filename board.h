@@ -47,6 +47,10 @@ public:
 
     bool is_white_turn();
 
+    bool is_checkmate();
+
+    bool is_stalemate();
+
     int get_piece(int row, int col);
 
     bool make_move(Move& m);

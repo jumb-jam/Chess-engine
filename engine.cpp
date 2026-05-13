@@ -8,8 +8,17 @@ int Engine::minimax(Board& board, int depth){
 
     std::vector<Move> moves = board.generate_moves();
 
-    if(moves.empty()){
-        return board.evaluate_position();
+    if(board.is_checkmate()){
+
+        if(board.is_white_turn())
+            return -100000;
+
+        else
+            return 100000;
+    }
+
+    if(board.is_stalemate()){
+        return 0;
     }
 
     bool maximizingPlayer = board.is_white_turn();

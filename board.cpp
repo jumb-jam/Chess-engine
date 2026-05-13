@@ -1,8 +1,9 @@
 #include <iostream>
 #include <vector>
-#include "utils.h"
 
+#include "utils.h"
 #include "board.h"
+#include "evaluation.h"
 
 // implemented prev states, now need to improve evaluation algo
 
@@ -120,6 +121,28 @@ bool Board::is_white_turn(){
     return whiteTurn;
 };
 
+bool Board::is_checkmate(){
+
+    bool white = is_white_turn();
+
+    if(!is_in_check(white)){
+        return false;
+    }
+
+    return generate_moves().empty();
+}
+
+bool Board::is_stalemate(){
+
+    bool white = is_white_turn();
+
+    if(is_in_check(white)){
+        return false;
+    }
+
+    return generate_moves().empty();
+}
+
 int Board::get_piece(int row,int col){
     return board[row][col];
 }
@@ -130,6 +153,16 @@ bool Board::make_move(Move& m){
 
     if(piece == 0){
         return false;
+    }
+
+    if(abs(piece) == 1){
+        if((piece > 0 && m.toRow == 0) || (piece < 0 && m.toRow == 7)){
+            m.isPromotion = true;
+
+            if(m.promotionPiece == 0){
+                m.promotionPiece = 5;
+            }
+        }
     }
 
     m.capturedPiece = get_piece(m.toRow, m.toCol);
@@ -156,7 +189,16 @@ bool Board::make_move(Move& m){
 
    
 
-    board[m.toRow][m.toCol] = piece;
+    if(m.isPromotion){
+        if(piece > 0)
+            board[m.toRow][m.toCol] = m.promotionPiece;
+        else
+            board[m.toRow][m.toCol] = -m.promotionPiece;
+    }
+    else{
+        board[m.toRow][m.toCol] = piece;
+    }
+
     board[m.fromRow][m.fromCol] = 0;
 
     if(m.isCastle){
@@ -583,7 +625,14 @@ int Board::evaluate_position(){
 
             switch(abs(piece)){
                 case 1:
-                    score += (piece > 0) ? 100 : -100;
+                    if(piece > 0){
+                        score += 100;
+                        score += pawnTable[row][col];
+                    }
+                    else{
+                        score -= 100;
+                        score -= pawnTable[7 - row][col];
+                    }
                     break;
 
                 case 2:
@@ -591,7 +640,14 @@ int Board::evaluate_position(){
                     break;
 
                 case 3:
-                    score += (piece > 0) ? 320 : -320;
+                    if(piece > 0){
+                        score += 320;
+                        score += knightTable[row][col];
+                    }
+                    else{
+                        score -= 320;
+                        score -= knightTable[7 - row][col];
+                    }
                     break;
 
                 case 4:
@@ -616,6 +672,13 @@ void Board::undo_move(const Move& m){
 
     whiteTurn = !whiteTurn;
     int piece = get_piece(m.toRow, m.toCol);
+
+    if(m.isPromotion){
+        if(piece > 0)
+            piece = 1;
+        else
+            piece = -1;
+    }
 
     board[m.fromRow][m.fromCol] = piece;
     board[m.toRow][m.toCol] = m.capturedPiece;

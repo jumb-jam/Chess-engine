@@ -19,5 +19,13 @@ int main(){
         b.make_move(bestMove);
     }
 
+    if(b.is_white_turn()){
+        std::cout<< "White to move\n";
+    }
+    else{
+        std::cout<< "Black to move\n";
+    }
+    std::cout << "Eval Score: " << b.evaluate_position();
+
     return 0;
 }
