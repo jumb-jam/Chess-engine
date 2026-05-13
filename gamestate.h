@@ -15,4 +15,6 @@ struct GameState{
 
     int enPassantRow;
     int enPassantCol;
+
+    int fiftymoveClock;
 };

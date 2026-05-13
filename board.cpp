@@ -73,6 +73,36 @@ void Board::print_board(){
     std::cout << "\n";
 }
 
+std::string Board::get_position_key() const{
+
+    std::string key;
+
+    for(int row = 0; row < 8; row++){
+
+        for(int col = 0; col < 8; col++){
+
+            key += std::to_string(board[row][col]);
+            key += ',';
+        }
+    }
+
+    key += whiteTurn ? 'w' : 'b';
+
+    key += std::to_string(enPassantRow);
+    key += std::to_string(enPassantCol);
+
+    key += whiteKingMoved ? '1' : '0';
+    key += blackKingMoved ? '1' : '0';
+
+    key += whiteKingsideRookMoved ? '1' : '0';
+    key += whiteQueensideRookMoved ? '1' : '0';
+
+    key += blackKingsideRookMoved ? '1' : '0';
+    key += blackQueensideRookMoved ? '1' : '0';
+
+    return key;
+}
+
 GameState Board::save_state() const{
 
     GameState state;
@@ -92,6 +122,8 @@ GameState Board::save_state() const{
 
     state.enPassantRow = enPassantRow;
     state.enPassantCol = enPassantCol;
+
+    state.fiftymoveClock=fiftymoveClock;
 
     return state;
 }
@@ -143,6 +175,28 @@ bool Board::is_stalemate(){
     return generate_moves().empty();
 }
 
+bool Board::is_fifty_move_draw(){
+    return fiftymoveClock>=100;
+}
+
+bool Board::is_threefold_repetition(){
+
+    std::string current =
+        get_position_key();
+
+    int count = 0;
+
+    for(const std::string& pos
+        : positionHistory){
+
+        if(pos == current){
+            count++;
+        }
+    }
+
+    return count >= 3;
+}
+
 int Board::get_piece(int row,int col){
     return board[row][col];
 }
@@ -153,6 +207,13 @@ bool Board::make_move(Move& m){
 
     if(piece == 0){
         return false;
+    }
+
+    if(abs(piece) == 1 || m.capturedPiece != 0){
+        fiftymoveClock = 0;
+    }
+    else{
+        fiftymoveClock++;
     }
 
     if(abs(piece) == 1){
@@ -252,6 +313,8 @@ bool Board::make_move(Move& m){
     }
 
     whiteTurn = !whiteTurn;
+
+    positionHistory.push_back(get_position_key());
 
     return true;
 }
@@ -721,6 +784,10 @@ void Board::undo_move(const Move& m){
 
     enPassantRow = -1;
     enPassantCol = -1;
+
+    if(!positionHistory.empty()){
+        positionHistory.pop_back();
+    }
 }
     
 

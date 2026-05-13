@@ -3,6 +3,7 @@
 #include "evaluation.h"
 #include "gamestate.h"
 #include <vector>
+#include <string>
 
 struct Move{
     int fromRow;
@@ -37,10 +38,16 @@ private:
     int enPassantRow = -1;
     int enPassantCol = -1;
 
+    int fiftymoveClock=0;
+
+    std::vector<std::string> positionHistory;
+
 public:
     void init_board();
 
     void print_board();
+
+    std::string get_position_key() const;
 
     GameState save_state() const;
 
@@ -51,6 +58,10 @@ public:
     bool is_checkmate();
 
     bool is_stalemate();
+
+    bool is_fifty_move_draw();
+
+    bool is_threefold_repetition();
 
     int get_piece(int row, int col);
 

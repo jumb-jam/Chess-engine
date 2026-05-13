@@ -21,6 +21,14 @@ int Engine::minimax(Board& board, int depth){
         return 0;
     }
 
+    if(board.is_fifty_move_draw()){
+        return 0;
+    }
+
+    if(board.is_threefold_repetition()){
+        return 0;
+    }
+
     bool maximizingPlayer = board.is_white_turn();
 
     if(maximizingPlayer){
