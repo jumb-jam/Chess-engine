@@ -1,31 +1,23 @@
 #include <iostream>
-#include "engine.h"
-#include "board.h"
+#include <string>
 
+#include "board.h"
+#include "engine.h"
 
 int main(){
-    Board b;
-    b.init_board();
+
+    Board board;
+    board.init_board();
 
     Engine engine;
 
-    for(int i = 0; i < 100; i++){
-
-        b.print_board();
-
-        Move bestMove =
-            engine.find_best_move(b, 3);
-
-        b.make_move(bestMove);
+    for(int i=0;i<100;i++){
+        board.print_board();
+        Move m=engine.find_best_move(board,3);
+        board.make_move(m);
+        std::cout << "Eval: " << board.evaluate_position() << "\n";
     }
-
-    if(b.is_white_turn()){
-        std::cout<< "White to move\n";
-    }
-    else{
-        std::cout<< "Black to move\n";
-    }
-    std::cout << "Eval Score: " << b.evaluate_position();
+    
 
     return 0;
 }

@@ -1,6 +1,7 @@
 #include "engine.h"
+#include <algorithm>
 
-int Engine::minimax(Board& board, int depth){
+int Engine::alphabeta(Board& board, int depth, int alpha, int beta){
 
     if(depth == 0){
         return board.evaluate_position();
@@ -11,10 +12,10 @@ int Engine::minimax(Board& board, int depth){
     if(board.is_checkmate()){
 
         if(board.is_white_turn())
-            return -100000;
+            return -100000 + depth;
 
         else
-            return 100000;
+            return 100000 - depth;
     }
 
     if(board.is_stalemate()){
@@ -29,6 +30,10 @@ int Engine::minimax(Board& board, int depth){
         return 0;
     }
 
+    std::sort(moves.begin(),moves.end(),[](const Move& a,const Move& b){
+        return a.capturedPiece != 0 && b.capturedPiece == 0;
+    });
+
     bool maximizingPlayer = board.is_white_turn();
 
     if(maximizingPlayer){
@@ -40,13 +45,19 @@ int Engine::minimax(Board& board, int depth){
             GameState state = board.save_state();
             board.make_move(m);
 
-            int score = minimax(board, depth - 1);
+            int score = alphabeta(board, depth - 1, alpha, beta);
 
             board.undo_move(m);
             board.restore_state(state);
 
             if(score > bestScore){
                 bestScore = score;
+            }
+            if(score > alpha){
+                alpha = score;
+            }
+            if(alpha >= beta){
+                break;
             }
         }
 
@@ -62,7 +73,7 @@ int Engine::minimax(Board& board, int depth){
             GameState state = board.save_state();
             board.make_move(m);
 
-            int score = minimax(board, depth - 1);
+            int score = alphabeta(board, depth - 1, alpha, beta);
 
             board.undo_move(m);
             board.restore_state(state);
@@ -70,8 +81,15 @@ int Engine::minimax(Board& board, int depth){
             if(score < bestScore){
                 bestScore = score;
             }
-        }
+            if(score < beta){
+                beta = score;
+            }
+            if(alpha >= beta){
+                break;
+            }
 
+            
+        }
         return bestScore;
     }
 }
@@ -96,12 +114,13 @@ Move Engine::find_best_move(Board& board, int depth){
         bestScore = 999999;
 
     for(Move& m : moves){
-
+        GameState state = board.save_state();
         board.make_move(m);
 
-        int score = minimax(board, depth - 1);
+        int score = alphabeta(board, depth - 1,-999999,999999);
 
         board.undo_move(m);
+        board.restore_state(state);
 
         if(maximizingPlayer && score > bestScore){
 

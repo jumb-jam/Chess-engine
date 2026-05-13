@@ -4,7 +4,7 @@
 class Engine{
 public:
 
-    int minimax(Board& board, int depth);
+    int alphabeta(Board& board, int depth, int alpha, int beta);
 
     Move find_best_move(Board& board, int depth);
 };
