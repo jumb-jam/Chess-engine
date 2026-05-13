@@ -1,5 +1,6 @@
 #pragma once
 
+#include "evaluation.h"
 #include "gamestate.h"
 #include <vector>
 
