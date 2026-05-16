@@ -11,8 +11,8 @@ int main(){
 
     Engine engine;
 
-    for(int i=0;i<100;i++){
-        board.print_board();
+    for(int i=0;i<50;i++){
+        //board.print_board();
         Move m=engine.find_best_move(board,3);
         board.make_move(m);
         std::cout << "Eval: " << board.evaluate_position() << "\n";

@@ -1,24 +1,26 @@
+#include <iostream>
 #include "engine.h"
 #include <algorithm>
 
 int Engine::alphabeta(Board& board, int depth, int alpha, int beta){
+    nodes++;
 
     if(depth == 0){
-        return board.evaluate_position();
+        return quiescence(board,alpha,beta,4);
+        //return board.evaluate_position();
     }
 
     std::vector<Move> moves = board.generate_moves();
 
-    if(board.is_checkmate()){
+    if(moves.empty()){
+        if(board.is_in_check(board.is_white_turn())){
 
-        if(board.is_white_turn())
-            return -100000 + depth;
+            if(board.is_white_turn())
+                return -100000 + depth;
+            else
+                return 100000 - depth;
+        }
 
-        else
-            return 100000 - depth;
-    }
-
-    if(board.is_stalemate()){
         return 0;
     }
 
@@ -94,7 +96,66 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta){
     }
 }
 
+int Engine::quiescence(Board& board, int alpha, int beta, int depth){
+    nodes++;
+
+    int standPat = board.evaluate_position();
+
+    if(depth <= 0){
+        return standPat;
+    }
+
+    if(standPat >= beta){
+        return beta;
+    }
+
+    alpha = std::max(alpha,standPat);
+
+    std::vector<Move> captures;
+
+    for(Move& m : board.generate_moves()){
+        if(m.capturedPiece==0){
+            continue;
+        }
+
+        int attacker =abs(board.get_piece(m.fromRow,m.fromCol));
+        int victim = abs(m.capturedPiece);
+
+        if(victim < attacker){
+            continue;
+        }
+
+        captures.push_back(m);
+    }
+
+    std::sort(captures.begin(),captures.end(),[&](const Move& a,const Move& b){  // MVV-LVA ordering
+        int scoreA = abs(a.capturedPiece)*10 - abs(board.get_piece(a.fromRow,a.fromCol)); 
+        int scoreB = abs(b.capturedPiece)*10 - abs(board.get_piece(b.fromRow,b.fromCol));
+
+        return scoreA > scoreB;
+    });
+
+    for(Move& m : captures){
+        GameState state= board.save_state();
+        board.make_move(m);
+
+        int score= quiescence(board,alpha,beta,depth-1);
+
+        board.undo_move(m);
+        board.restore_state(state);
+
+        if(score>=beta){
+            return beta;
+        }
+
+        alpha=std::max(alpha,score);
+    }
+
+    return alpha;
+}
+
 Move Engine::find_best_move(Board& board, int depth){
+    nodes=0;
 
     std::vector<Move> moves = board.generate_moves();
 
@@ -135,5 +196,6 @@ Move Engine::find_best_move(Board& board, int depth){
         }
     }
 
+    std::cout << "Nodes searched: " << nodes << '\n';
     return bestMove;
 }

@@ -180,14 +180,10 @@ bool Board::is_fifty_move_draw(){
 }
 
 bool Board::is_threefold_repetition(){
-
-    std::string current =
-        get_position_key();
-
+    std::string current = get_position_key();
     int count = 0;
 
-    for(const std::string& pos
-        : positionHistory){
+    for(const std::string& pos : positionHistory){
 
         if(pos == current){
             count++;
@@ -569,33 +565,102 @@ bool Board::is_valid_move(const Move& m){
 
 bool Board::is_square_attacked(int row, int col, bool byWhite){
 
-    for(int r = 0; r < 8; r++){
-        for(int c = 0; c < 8; c++){
+    int pawn = byWhite ? 1 : -1;
+    int knight = byWhite ? 3 : -3;
+    int bishop = byWhite ? 2 : -2;
+    int rook = byWhite ? 4 : -4;
+    int queen = byWhite ? 5 : -5;
+    int king = byWhite ? 6 : -6;
 
-            int piece = get_piece(r, c);
+    int pawnDir = byWhite ? 1 : -1;
 
-            if(piece == 0)
+    if(in_bounds(row + pawnDir, col - 1) && get_piece(row + pawnDir, col - 1) == pawn){
+        return true;
+    }
+
+    if(in_bounds(row + pawnDir, col + 1) && get_piece(row + pawnDir,col + 1) == pawn){
+        return true;
+    }
+
+    int knightOffsets[8][2] = {
+        {-2,-1},
+        {-2, 1},
+        {-1,-2},
+        {-1, 2},
+        { 1,-2},
+        { 1, 2},
+        { 2,-1},
+        { 2, 1}
+    };
+
+    for(auto& offset : knightOffsets){
+        int r = row + offset[0];
+        int c = col + offset[1];
+
+        if(in_bounds(r,c) && get_piece(r,c) == knight){
+            return true;
+        }
+    }
+
+    int bishopDirs[4][2] = {
+        {-1,-1},
+        {-1, 1},
+        { 1,-1},
+        { 1, 1}
+    };
+
+    for(auto& dir : bishopDirs){
+        int r = row + dir[0];
+        int c = col + dir[1];
+
+        while(in_bounds(r,c)){
+            int piece = get_piece(r,c);
+
+            if(piece != 0){
+                if(piece == bishop || piece == queen){
+                    return true;
+                }
+                break;
+            }
+
+            r += dir[0];
+            c += dir[1];
+        }
+    }
+
+    int rookDirs[4][2] = {
+        {-1,0},
+        { 1,0},
+        { 0,-1},
+        { 0, 1}
+    };
+
+    for(auto& dir : rookDirs){
+        int r = row + dir[0];
+        int c = col + dir[1];
+
+        while(in_bounds(r,c)){
+            int piece = get_piece(r,c);
+
+            if(piece != 0){
+                if(piece == rook || piece == queen){
+                    return true;
+                }
+
+                break;
+            }
+            r += dir[0];
+            c += dir[1];
+        }
+    }
+
+    for(int r = row - 1; r <= row + 1; r++){
+        for(int c = col - 1;c <= col + 1; c++){
+
+            if(r == row && c == col){
                 continue;
-
-            if(byWhite && piece < 0)
-                continue;
-
-            if(!byWhite && piece > 0)
-                continue;
-
-            Move m{
-                r,
-                c,
-                row,
-                col
-            };
-
-            bool originalTurn = whiteTurn;
-            whiteTurn = byWhite;
-            bool attacks = is_valid_move(m);
-            whiteTurn = originalTurn;
-
-            if(attacks){
+            }
+            if(in_bounds(r,c) && get_piece(r,c) == king){
                 return true;
             }
         }
@@ -623,58 +688,201 @@ bool Board::is_in_check(bool whiteKing){
 }
 
 std::vector<Move> Board::generate_moves(){
-
-    std::vector<Move> moves;
     std::vector<Move> legalMoves;
 
-    for(int fromRow = 0; fromRow < 8; fromRow++){
-        for(int fromCol = 0; fromCol < 8; fromCol++){
+    for(int row=0;row<8;row++){
+        for(int col=0;col<8;col++){
 
-            int piece = get_piece(fromRow, fromCol);
+            int piece=get_piece(row,col);
 
-            if(piece == 0)
+            if(piece==0)
                 continue;
 
-            if(whiteTurn && piece < 0)
+            if(whiteTurn && piece<0)
                 continue;
 
-            if(!whiteTurn && piece > 0)
+            if(!whiteTurn && piece>0)
                 continue;
 
-            for(int toRow = 0; toRow < 8; toRow++){
-                for(int toCol = 0; toCol < 8; toCol++){
+            std::vector<Move> moves;
 
-                    Move m{
-                        fromRow,
-                        fromCol,
-                        toRow,
-                        toCol
+            switch(abs(piece)){
+
+                case 1:{ // pawn
+                    int dir=(piece>0)?-1:1;
+
+                    Move m1{
+                        row,col,
+                        row+dir,col
                     };
 
-                    if(is_valid_move(m)){
-                        m.capturedPiece = get_piece(toRow, toCol);
+                    if(in_bounds(m1.toRow,m1.toCol) && is_valid_move(m1))
+                        moves.push_back(m1);
 
-                        moves.push_back(m);
-                    }
+                    Move m2{
+                        row,col,
+                        row+2*dir,col
+                    };
+
+                    if(in_bounds(m2.toRow,m2.toCol) && is_valid_move(m2))
+                        moves.push_back(m2);
+
+                    Move c1{
+                        row,col,
+                        row+dir,col-1
+                    };
+
+                    if(in_bounds(c1.toRow,c1.toCol) && is_valid_move(c1))
+                        moves.push_back(c1);
+
+                    Move c2{
+                        row,col,
+                        row+dir,col+1
+                    };
+
+                    if(in_bounds(c2.toRow,c2.toCol) && is_valid_move(c2))
+                        moves.push_back(c2);
+
+                    break;
                 }
+
+                case 3:{ // knight
+
+                    int offsets[8][2]={
+                        {-2,-1},
+                        {-2,1},
+                        {-1,-2},
+                        {-1,2},
+                        {1,-2},
+                        {1,2},
+                        {2,-1},
+                        {2,1}
+                    };
+
+                    for(auto& o:offsets){
+
+                        Move m{
+                            row,
+                            col,
+                            row+o[0],
+                            col+o[1]
+                        };
+
+                        if(in_bounds(m.toRow,m.toCol) && is_valid_move(m))
+                            moves.push_back(m);
+                    }
+
+                    break;
+                }
+
+                case 6:{ // king
+
+                    for(int dr=-1;dr<=1;dr++){
+                        for(int dc=-1;dc<=1;dc++){
+
+                            if(dr==0 && dc==0)
+                                continue;
+
+                            Move m{
+                                row,
+                                col,
+                                row+dr,
+                                col+dc
+                            };
+
+                            if(in_bounds(m.toRow,m.toCol) && is_valid_move(m))
+                                moves.push_back(m);
+                        }
+                    }
+
+                    Move castleK{
+                        row,col,row,col+2
+                    };
+
+                    Move castleQ{
+                        row,col,row,col-2
+                    };
+
+                    if(is_valid_move(castleK))
+                        moves.push_back(castleK);
+
+                    if(is_valid_move(castleQ))
+                        moves.push_back(castleQ);
+
+                    break;
+                }
+
+                case 2:
+                case 4:
+                case 5:{ // bishop/rook/queen
+
+                    std::vector<std::pair<int,int>>
+                    dirs;
+
+                    if(abs(piece)==2 ||
+                    abs(piece)==5){
+
+                        dirs.push_back({-1,-1});
+                        dirs.push_back({-1,1});
+                        dirs.push_back({1,-1});
+                        dirs.push_back({1,1});
+                    }
+
+                    if(abs(piece)==4 ||
+                    abs(piece)==5){
+
+                        dirs.push_back({-1,0});
+                        dirs.push_back({1,0});
+                        dirs.push_back({0,-1});
+                        dirs.push_back({0,1});
+                    }
+
+                    for(auto& d:dirs){
+
+                        int r=row+d.first;
+                        int c=col+d.second;
+
+                        while(in_bounds(r,c)){
+
+                            Move m{
+                                row,
+                                col,
+                                r,
+                                c
+                            };
+
+                            if(is_valid_move(m))
+                                moves.push_back(m);
+
+                            if(get_piece(r,c)!=0)
+                                break;
+
+                            r+=d.first;
+                            c+=d.second;
+                        }
+                    }
+
+                    break;
+                }
+            }
+
+            for(Move& m:moves){
+                bool movingWhite=get_piece(m.fromRow,m.fromCol)>0;
+
+                GameState state=save_state();
+                make_move(m);
+
+                if(!is_in_check(movingWhite)){
+                    legalMoves.push_back(m);
+                }
+
+                undo_move(m);
+                restore_state(state);
             }
         }
     }
 
-    for(Move& m : moves){
-
-        bool movingWhite = get_piece(m.fromRow,m.fromCol) > 0;
-        make_move(m);
-
-        if(!is_in_check(movingWhite)){
-            legalMoves.push_back(m);
-        }
-
-        undo_move(m);
-    }
-
     return legalMoves;
-
 }
 
 int Board::evaluate_position(){
