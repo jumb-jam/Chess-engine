@@ -32,6 +32,8 @@ void Board::init_board(){
     board[7][0]=4;
     board[0][7]=-4;
     board[7][7]=4;
+
+    positionHistory.push_back(get_position_key());
 }
 
 void Board::print_board(){
@@ -145,8 +147,9 @@ void Board::restore_state(const GameState& state){
     blackQueensideRookMoved = state.blackQueensideRookMoved;
 
     enPassantRow = state.enPassantRow;
-
     enPassantCol = state.enPassantCol;
+
+    fiftymoveClock=state.fiftymoveClock;
 }
 
 bool Board::is_white_turn(){
@@ -198,7 +201,12 @@ int Board::get_piece(int row,int col){
 }
 
 bool Board::make_move(Move& m){
-
+    m.capturedPiece = 0;
+    m.isCastle = false;
+    m.isEnPassant = false;
+    m.isPromotion = false;
+    m.promotionPiece = 0;
+    
     int piece = get_piece(m.fromRow,m.fromCol);
 
     if(piece == 0){
@@ -223,6 +231,28 @@ bool Board::make_move(Move& m){
     }
 
     m.capturedPiece = get_piece(m.toRow, m.toCol);
+
+    if(m.capturedPiece == 4){
+
+        if(m.toRow == 7 && m.toCol == 0){
+            whiteQueensideRookMoved = true;
+        }
+
+        if(m.toRow == 7 && m.toCol == 7){
+            whiteKingsideRookMoved = true;
+        }
+    }
+
+    if(m.capturedPiece == -4){
+
+        if(m.toRow == 0 && m.toCol == 0){
+            blackQueensideRookMoved = true;
+        }
+
+        if(m.toRow == 0 && m.toCol == 7){
+            blackKingsideRookMoved = true;
+        }
+    }
 
     if(abs(piece) == 6 && abs(m.toCol - m.fromCol) == 2){  //castle check
         m.isCastle = true;
@@ -500,28 +530,30 @@ bool Board::is_valid_move(const Move& m){
 
             if(piece > 0){   //checking castling legality
 
-                if(!whiteKingMoved && rowDiff == 0 && colDiff == 2){
-
-                    if(m.toCol == 6 &&
+                if(!whiteKingMoved && rowDiff==0 && colDiff==2){
+                   
+                    if(m.toCol==6 &&
                     !whiteKingsideRookMoved &&
-                    get_piece(7,5) == 0 &&
-                    get_piece(7,6) == 0 &&
+                    get_piece(7,7)==4 &&          
+                    get_piece(7,5)==0 &&
+                    get_piece(7,6)==0 &&
                     !is_square_attacked(7,4,false) &&
                     !is_square_attacked(7,5,false) &&
-                    !is_square_attacked(7,6,false)){
-
+                    !is_square_attacked(7,6,false))
+                    {
                         return true;
                     }
-
-                    if(m.toCol == 2 &&
+                   
+                    if(m.toCol==2 &&
                     !whiteQueensideRookMoved &&
-                    get_piece(7,1) == 0 &&
-                    get_piece(7,2) == 0 &&
-                    get_piece(7,3) == 0 &&
+                    get_piece(7,0)==4 &&          
+                    get_piece(7,1)==0 &&
+                    get_piece(7,2)==0 &&
+                    get_piece(7,3)==0 &&
                     !is_square_attacked(7,4,false) &&
                     !is_square_attacked(7,3,false) &&
-                    !is_square_attacked(7,2,false)){
-
+                    !is_square_attacked(7,2,false))
+                    {
                         return true;
                     }
                 }
@@ -531,26 +563,29 @@ bool Board::is_valid_move(const Move& m){
 
                 if(!blackKingMoved && rowDiff == 0 && colDiff == 2){
 
-                    if(m.toCol == 6 &&
+                    if(m.toCol==6 &&
                     !blackKingsideRookMoved &&
-                    get_piece(0,5) == 0 &&
-                    get_piece(0,6) == 0 &&
+                    get_piece(0,7)==-4 &&       // NEW
+                    get_piece(0,5)==0 &&
+                    get_piece(0,6)==0 &&
                     !is_square_attacked(0,4,true) &&
                     !is_square_attacked(0,5,true) &&
-                    !is_square_attacked(0,6,true)){
-
+                    !is_square_attacked(0,6,true))
+                    {
                         return true;
                     }
 
-                    if(m.toCol == 2 &&
+                    // Queenside
+                    if(m.toCol==2 &&
                     !blackQueensideRookMoved &&
-                    get_piece(0,1) == 0 &&
-                    get_piece(0,2) == 0 &&
-                    get_piece(0,3) == 0 &&
+                    get_piece(0,0)==-4 &&       // NEW
+                    get_piece(0,1)==0 &&
+                    get_piece(0,2)==0 &&
+                    get_piece(0,3)==0 &&
                     !is_square_attacked(0,4,true) &&
                     !is_square_attacked(0,3,true) &&
-                    !is_square_attacked(0,2,true)){
-
+                    !is_square_attacked(0,2,true))
+                    {
                         return true;
                     }
                 }
@@ -885,54 +920,203 @@ std::vector<Move> Board::generate_moves(){
     return legalMoves;
 }
 
+int Board::get_pst_score(int piece,int row, int col){
+
+    if(piece < 0){
+        row = 7-row;
+    }
+
+    switch(abs(piece)){
+        case 1:
+            return pawnTable[row][col];
+        case 2:
+            return bishopTable[row][col];
+        case 3:
+            return knightTable[row][col];
+        case 4:
+            return rookTable[row][col];
+        case 5:
+            return queenTable[row][col];
+        case 6:
+            return kingTable[row][col];
+    }
+
+    return 0;
+}
+
+int Board::count_piece_mobility(int row, int col){
+    int piece = get_piece(row,col);
+
+    if(piece==0)
+        return 0;
+
+    int mobility=0;
+
+    switch(abs(piece)){
+
+        case 3:{ // knight
+
+            int offsets[8][2]={
+                {-2,-1},
+                {-2,1},
+                {-1,-2},
+                {-1,2},
+                {1,-2},
+                {1,2},
+                {2,-1},
+                {2,1}
+            };
+
+            for(auto& o:offsets){
+
+                int r=row+o[0];
+                int c=col+o[1];
+
+                if(in_bounds(r,c)){
+
+                    int target=get_piece(r,c);
+
+                    if(target==0 || !same_color(piece,target)){
+                        mobility++;
+                    }
+                }
+            }
+
+            break;
+        }
+
+        case 2:
+        case 4:
+        case 5:{
+
+            std::vector<std::pair<int,int>> dirs;
+
+            if(abs(piece)==2 || abs(piece)==5){
+                dirs.push_back({-1,-1});
+                dirs.push_back({-1,1});
+                dirs.push_back({1,-1});
+                dirs.push_back({1,1});
+            }
+
+            if(abs(piece)==4 || abs(piece)==5){
+                dirs.push_back({-1,0});
+                dirs.push_back({1,0});
+                dirs.push_back({0,-1});
+                dirs.push_back({0,1});
+            }
+
+            for(auto& d:dirs){
+                int r= row+d.first;
+
+                int c= col+d.second;
+
+                while(in_bounds(r,c)){
+
+                    int target=get_piece(r,c);
+
+                    if(target==0){
+                        mobility++;
+                    }
+                    else{
+                        if(!same_color(piece,target)){
+                            mobility++;
+                        }
+                        break;
+                    }
+
+                    r+=d.first;
+                    c+=d.second;
+                }
+            }
+            break;
+        }
+
+        case 6:{ // king
+            for(int dr=-1;dr<=1; dr++){
+                for(int dc=-1;dc<=1;dc++){
+
+                    if(dr==0 && dc==0){
+                        continue;
+                    }
+
+                    int r=row+dr;
+                    int c=col+dc;
+
+                    if(in_bounds(r,c)){
+                        int target=get_piece(r,c);
+
+                        if(target==0 || !same_color(piece,target)){
+                            mobility++;
+                        }
+                    }
+                }
+            }
+
+            break;
+        }
+
+    }
+
+    return mobility;
+}
+
 int Board::evaluate_position(){
 
-    int score = 0;
+    int score=0;
 
-    for(int row = 0; row < 8; row++){
-        for(int col = 0; col < 8; col++){
+    for(int row=0;row<8;row++){
+        for(int col=0;col<8;col++){
 
-            int piece = get_piece(row, col);
+            int piece=get_piece(row,col);
+
+            if(piece==0){
+                continue;
+            }
+
+            int value=0;
 
             switch(abs(piece)){
                 case 1:
-                    if(piece > 0){
-                        score += 100;
-                        score += pawnTable[row][col];
-                    }
-                    else{
-                        score -= 100;
-                        score -= pawnTable[7 - row][col];
-                    }
+                    value=100;
                     break;
-
                 case 2:
-                    score += (piece > 0) ? 330 : -330;
+                    value=330;
                     break;
-
                 case 3:
-                    if(piece > 0){
-                        score += 320;
-                        score += knightTable[row][col];
-                    }
-                    else{
-                        score -= 320;
-                        score -= knightTable[7 - row][col];
-                    }
+                    value=320;
                     break;
-
                 case 4:
-                    score += (piece > 0) ? 500 : -500;
+                    value=500;
                     break;
-
                 case 5:
-                    score += (piece > 0) ? 900 : -900;
+                    value=900;
                     break;
-
                 case 6:
-                    score += (piece > 0) ? 20000 : -20000;
+                    value=20000;
                     break;
             }
+
+            int pst=get_pst_score(piece,row,col);
+            int mobility=count_piece_mobility(row,col);
+
+            int mobilityBonus=0;
+
+            switch(abs(piece)){
+                case 2:
+                case 3:
+                    mobilityBonus=mobility*4;
+                    break;
+                case 4:
+                    mobilityBonus=mobility*2;
+                    break;
+                case 5:
+                    mobilityBonus=mobility;
+                    break;
+            }
+
+            int total = value+pst+mobilityBonus;
+
+            score += (piece>0) ? total:-total;
         }
     }
 

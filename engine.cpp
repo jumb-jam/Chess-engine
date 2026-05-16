@@ -2,11 +2,34 @@
 #include "engine.h"
 #include <algorithm>
 
+int Engine::get_mvv_lva(Board& board,const Move& m){
+    int pieceValue[7] =
+    {
+        0,
+        100,   // pawn
+        330,   // bishop
+        320,   // knight
+        500,   // rook
+        900,   // queen
+        20000  // king
+    };
+
+    int attacker =abs(board.get_piece(m.fromRow,m.fromCol));
+
+    int victim =abs(board.get_piece( m.toRow,m.toCol));
+
+    if(victim==0){
+        return 0;
+    }
+
+    return pieceValue[victim]*10 - pieceValue[attacker];
+}
+
 int Engine::alphabeta(Board& board, int depth, int alpha, int beta){
     nodes++;
 
     if(depth == 0){
-        return quiescence(board,alpha,beta,4);
+        return quiescence(board,alpha,beta,3);
         //return board.evaluate_position();
     }
 
@@ -32,9 +55,16 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta){
         return 0;
     }
 
+
+
     std::sort(moves.begin(),moves.end(),[](const Move& a,const Move& b){
         return a.capturedPiece != 0 && b.capturedPiece == 0;
     });
+    /*
+    std::stable_sort(moves.begin(),moves.end(),[&](const Move& a,const Move& b){
+        return get_mvv_lva(board,a) > get_mvv_lva(board,b);
+    });
+    */
 
     bool maximizingPlayer = board.is_white_turn();
 
@@ -98,7 +128,6 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta){
 
 int Engine::quiescence(Board& board, int alpha, int beta, int depth){
     nodes++;
-
     int standPat = board.evaluate_position();
 
     if(depth <= 0){
@@ -114,12 +143,13 @@ int Engine::quiescence(Board& board, int alpha, int beta, int depth){
     std::vector<Move> captures;
 
     for(Move& m : board.generate_moves()){
-        if(m.capturedPiece==0){
-            continue;
-        }
 
         int attacker =abs(board.get_piece(m.fromRow,m.fromCol));
-        int victim = abs(m.capturedPiece);
+        int victim = abs(board.get_piece(m.toRow,m.toCol));
+
+        if(victim==0){
+            continue;
+        }
 
         if(victim < attacker){
             continue;
@@ -128,11 +158,8 @@ int Engine::quiescence(Board& board, int alpha, int beta, int depth){
         captures.push_back(m);
     }
 
-    std::sort(captures.begin(),captures.end(),[&](const Move& a,const Move& b){  // MVV-LVA ordering
-        int scoreA = abs(a.capturedPiece)*10 - abs(board.get_piece(a.fromRow,a.fromCol)); 
-        int scoreB = abs(b.capturedPiece)*10 - abs(board.get_piece(b.fromRow,b.fromCol));
-
-        return scoreA > scoreB;
+    std::sort(captures.begin(),captures.end(),[&](const Move& a,const Move& b){  
+        return get_mvv_lva(board,a) > get_mvv_lva(board,b);
     });
 
     for(Move& m : captures){
@@ -162,6 +189,12 @@ Move Engine::find_best_move(Board& board, int depth){
     if(moves.empty()){
         return Move{};
     }
+
+    /*
+    std::stable_sort(moves.begin(),moves.end(),[&](const Move& a,const Move& b){
+        return get_mvv_lva(board,a) > get_mvv_lva(board,b);
+    });
+    */
 
     Move bestMove = moves[0];
 
