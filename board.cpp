@@ -4,8 +4,9 @@
 #include "utils.h"
 #include "board.h"
 #include "evaluation.h"
+#include "zobrist.h"
 
-// implemented prev states, now need to improve evaluation algo
+
 
 void Board::init_board(){
     for(int i=0;i<8;i++){
@@ -33,7 +34,9 @@ void Board::init_board(){
     board[0][7]=-4;
     board[7][7]=4;
 
-    positionHistory.push_back(get_position_key());
+    initialize_hash();
+    repetitionHistory.clear();
+    repetitionHistory.push_back(zobristKey);
 }
 
 void Board::print_board(){
@@ -75,81 +78,73 @@ void Board::print_board(){
     std::cout << "\n";
 }
 
-std::string Board::get_position_key() const{
+int Board::pieceIndex(int piece){
 
-    std::string key;
+    switch(piece){
 
-    for(int row = 0; row < 8; row++){
+        case 1: return 0;
+        case 2: return 1;
+        case 3: return 2;
+        case 4: return 3;
+        case 5: return 4;
+        case 6: return 5;
 
-        for(int col = 0; col < 8; col++){
+        case -1: return 6;
+        case -2: return 7;
+        case -3: return 8;
+        case -4: return 9;
+        case -5: return 10;
+        case -6: return 11;
+    }
 
-            key += std::to_string(board[row][col]);
-            key += ',';
+    return -1;
+}
+
+void Board::initialize_hash(){
+
+    zobristKey=0;
+
+    for(int row=0;row<8;row++){
+        for(int col=0;col<8;col++){
+
+            int piece=board[row][col];
+
+            if(piece==0)
+                continue;
+
+            int square=row*8+col;
+
+            zobristKey^=Zobrist::pieces[pieceIndex(piece)][square];
         }
     }
 
-    key += whiteTurn ? 'w' : 'b';
+    if(!whiteTurn)
+        zobristKey^=Zobrist::sideToMove;
 
-    key += std::to_string(enPassantRow);
-    key += std::to_string(enPassantCol);
+    int castleRights=0;
 
-    key += whiteKingMoved ? '1' : '0';
-    key += blackKingMoved ? '1' : '0';
+    if(!whiteKingsideRookMoved)
+        castleRights|=1;
 
-    key += whiteKingsideRookMoved ? '1' : '0';
-    key += whiteQueensideRookMoved ? '1' : '0';
+    if(!whiteQueensideRookMoved)
+        castleRights|=2;
 
-    key += blackKingsideRookMoved ? '1' : '0';
-    key += blackQueensideRookMoved ? '1' : '0';
+    if(!blackKingsideRookMoved)
+        castleRights|=4;
 
-    return key;
+    if(!blackQueensideRookMoved)
+        castleRights|=8;
+
+    zobristKey^=Zobrist::castle[castleRights];
+
+    if(enPassantCol!=-1){
+
+        zobristKey^=Zobrist::enPassant[enPassantCol];
+    }
 }
 
-GameState Board::save_state() const{
-
-    GameState state;
-
-    state.whiteTurn = whiteTurn;
-
-    state.whiteKingMoved = whiteKingMoved;
-    state.blackKingMoved = blackKingMoved;
-
-    state.whiteKingsideRookMoved = whiteKingsideRookMoved;
-
-    state.whiteQueensideRookMoved = whiteQueensideRookMoved;
-
-    state.blackKingsideRookMoved = blackKingsideRookMoved;
-
-    state.blackQueensideRookMoved = blackQueensideRookMoved;
-
-    state.enPassantRow = enPassantRow;
-    state.enPassantCol = enPassantCol;
-
-    state.fiftymoveClock=fiftymoveClock;
-
-    return state;
-}
-
-void Board::restore_state(const GameState& state){
-
-    whiteTurn = state.whiteTurn;
-
-    whiteKingMoved = state.whiteKingMoved;
-
-    blackKingMoved = state.blackKingMoved;
-
-    whiteKingsideRookMoved = state.whiteKingsideRookMoved;
-
-    whiteQueensideRookMoved = state.whiteQueensideRookMoved;
-
-    blackKingsideRookMoved = state.blackKingsideRookMoved;
-
-    blackQueensideRookMoved = state.blackQueensideRookMoved;
-
-    enPassantRow = state.enPassantRow;
-    enPassantCol = state.enPassantCol;
-
-    fiftymoveClock=state.fiftymoveClock;
+uint64_t Board::get_hash() const{
+    return zobristKey;
 }
 
 bool Board::is_white_turn(){
@@ -183,35 +178,77 @@ bool Board::is_fifty_move_draw(){
 }
 
 bool Board::is_threefold_repetition(){
-    std::string current = get_position_key();
-    int count = 0;
+    int count=0;
 
-    for(const std::string& pos : positionHistory){
-
-        if(pos == current){
+    for(uint64_t h : repetitionHistory){
+        if(h==zobristKey){
             count++;
         }
     }
 
-    return count >= 3;
+    return count>=3;
 }
 
 int Board::get_piece(int row,int col){
     return board[row][col];
 }
 
-bool Board::make_move(Move& m){
-    m.capturedPiece = 0;
+int Board::castleRights() {
+
+    int rights=0;
+
+    if(!whiteKingsideRookMoved)
+        rights|=1;
+
+    if(!whiteQueensideRookMoved)
+        rights|=2;
+
+    if(!blackKingsideRookMoved)
+        rights|=4;
+
+    if(!blackQueensideRookMoved)
+        rights|=8;
+
+    return rights;
+}
+
+bool Board::make_move(Move& m, Undo& u){
+
     m.isCastle = false;
     m.isEnPassant = false;
     m.isPromotion = false;
     m.promotionPiece = 0;
-    
+
     int piece = get_piece(m.fromRow,m.fromCol);
+    m.capturedPiece = get_piece(m.toRow, m.toCol);
 
     if(piece == 0){
         return false;
     }
+    
+
+    u.oldHash=zobristKey;
+
+    u.oldEnPassantRow=enPassantRow;
+    u.oldEnPassantCol=enPassantCol;
+
+    u.oldWhiteKingMoved=whiteKingMoved;
+    u.oldBlackKingMoved=blackKingMoved;
+
+    u.oldWKRookMoved=whiteKingsideRookMoved;
+    u.oldWQRookMoved=whiteQueensideRookMoved;
+
+    u.oldBKRookMoved=blackKingsideRookMoved;
+    u.oldBQRookMoved=blackQueensideRookMoved;
+
+    u.oldFiftyMove=fiftymoveClock;
+
+    if(enPassantCol!=-1){
+        zobristKey ^= Zobrist::enPassant[enPassantCol];
+    }
+    zobristKey ^= Zobrist::castle[castleRights()];
+    
+
 
     if(abs(piece) == 1 || m.capturedPiece != 0){
         fiftymoveClock = 0;
@@ -229,8 +266,6 @@ bool Board::make_move(Move& m){
             }
         }
     }
-
-    m.capturedPiece = get_piece(m.toRow, m.toCol);
 
     if(m.capturedPiece == 4){
 
@@ -258,58 +293,93 @@ bool Board::make_move(Move& m){
         m.isCastle = true;
     }
 
-    if(abs(piece) == 1 && m.toRow == enPassantRow && m.toCol == enPassantCol && m.capturedPiece == 0){  //enpassant check
-        m.isEnPassant = true;
+    if(abs(piece)==1 && m.toRow==enPassantRow && m.toCol==enPassantCol && m.capturedPiece==0){
+        m.isEnPassant=true;
 
-        if(piece > 0){
-            m.capturedPiece = board[m.toRow + 1][m.toCol];
-
-            board[m.toRow + 1][m.toCol] = 0;
-        }
-        else{
-            m.capturedPiece = board[m.toRow - 1][m.toCol];
-
-            board[m.toRow - 1][m.toCol] = 0;
-        }
+        if(piece>0)
+            m.capturedPiece=board[m.toRow+1][m.toCol];
+        else
+            m.capturedPiece=board[m.toRow-1][m.toCol];
     }
 
 
-   
+    
 
+    int fromSq=m.fromRow*8+m.fromCol;
+    int toSq=m.toRow*8+m.toCol;
+
+    zobristKey^=Zobrist::pieces[pieceIndex(piece)][fromSq];
+
+    if(m.capturedPiece!=0){
+
+        int captureSq = toSq;
+
+        if(m.isEnPassant){
+            if(piece>0){
+                captureSq=(m.toRow+1)*8+m.toCol;
+                board[m.toRow+1][m.toCol]=0;
+            }
+            else{
+                captureSq=(m.toRow-1)*8+m.toCol;
+                board[m.toRow-1][m.toCol]=0;
+            }
+        }
+
+        zobristKey ^=Zobrist::pieces[pieceIndex(m.capturedPiece)][captureSq];
+    }
     if(m.isPromotion){
-        if(piece > 0)
-            board[m.toRow][m.toCol] = m.promotionPiece;
-        else
-            board[m.toRow][m.toCol] = -m.promotionPiece;
+
+        int promoted=(piece>0)? m.promotionPiece:-m.promotionPiece;
+        board[m.toRow][m.toCol]=promoted;
+
+        zobristKey^= Zobrist::pieces[pieceIndex(promoted)][toSq];
     }
     else{
-        board[m.toRow][m.toCol] = piece;
+        board[m.toRow][m.toCol]=piece;
+        zobristKey^=Zobrist::pieces[pieceIndex(piece)][toSq];
     }
-
-    board[m.fromRow][m.fromCol] = 0;
 
     if(m.isCastle){
-        if(piece > 0){
-            if(m.toCol == 6){
-                board[7][5] = 4;
-                board[7][7] = 0;
+
+        if(piece==6){
+            if(m.toCol==6){
+                board[7][5]=4;
+                board[7][7]=0;
+
+                zobristKey ^= Zobrist::pieces[pieceIndex(4)][63];
+                zobristKey ^=Zobrist::pieces[pieceIndex(4)][61];
             }
             else{
-                board[7][3] = 4;
-                board[7][0] = 0;
+                board[7][3]=4;
+                board[7][0]=0;
+
+                zobristKey ^=Zobrist::pieces[pieceIndex(4)][56];
+                zobristKey ^=Zobrist::pieces[pieceIndex(4)][59];
             }
         }
-        else{
-            if(m.toCol == 6){
-                board[0][5] = -4;
-                board[0][7] = 0;
+
+        else if(piece==-6){
+            if(m.toCol==6){
+                board[0][5]=-4;
+                board[0][7]=0;
+
+                zobristKey ^=Zobrist::pieces[pieceIndex(-4)][7];
+                zobristKey ^=Zobrist::pieces[pieceIndex(-4)][5];
             }
+
             else{
-                board[0][3] = -4;
-                board[0][0] = 0;
+                board[0][3]=-4;
+                board[0][0]=0;
+
+                zobristKey ^=Zobrist::pieces[pieceIndex(-4)][0];
+                zobristKey ^=Zobrist::pieces[pieceIndex(-4)][3];
             }
         }
     }
+
+    
+   
+    board[m.fromRow][m.fromCol] = 0;
 
     if(piece == 6){
         whiteKingMoved = true;
@@ -338,9 +408,16 @@ bool Board::make_move(Move& m){
         enPassantCol=m.fromCol;
     }
 
+    if(enPassantCol!=-1){
+        zobristKey ^= Zobrist::enPassant[enPassantCol];
+    }
+    zobristKey^=Zobrist::castle[castleRights()];
+
     whiteTurn = !whiteTurn;
 
-    positionHistory.push_back(get_position_key());
+    zobristKey^=Zobrist::sideToMove;
+    repetitionHistory.push_back(zobristKey);
+    
 
     return true;
 }
@@ -607,7 +684,7 @@ bool Board::is_square_attacked(int row, int col, bool byWhite){
     int queen = byWhite ? 5 : -5;
     int king = byWhite ? 6 : -6;
 
-    int pawnDir = byWhite ? 1 : -1;
+    int pawnDir = byWhite ? -1 : 1;
 
     if(in_bounds(row + pawnDir, col - 1) && get_piece(row + pawnDir, col - 1) == pawn){
         return true;
@@ -878,22 +955,17 @@ std::vector<Move> Board::generate_moves(){
                         int c=col+d.second;
 
                         while(in_bounds(r,c)){
-
-                            Move m{
-                                row,
-                                col,
-                                r,
-                                c
-                            };
-
-                            if(is_valid_move(m))
-                                moves.push_back(m);
-
-                            if(get_piece(r,c)!=0)
+                            int target = get_piece(r,c);
+                            if(target != 0){
+                                if(!same_color(piece, target)){
+                                    Move m={row, col, r, c};
+                                    m.capturedPiece = target;
+                                    moves.push_back(m);
+                                }
                                 break;
-
-                            r+=d.first;
-                            c+=d.second;
+                            }
+                            moves.push_back(Move{row, col, r, c});
+                            r += d.first; c += d.second;
                         }
                     }
 
@@ -903,16 +975,144 @@ std::vector<Move> Board::generate_moves(){
 
             for(Move& m:moves){
                 bool movingWhite=get_piece(m.fromRow,m.fromCol)>0;
-
-                GameState state=save_state();
-                make_move(m);
+                
+                Undo u;
+                make_move(m,u);
 
                 if(!is_in_check(movingWhite)){
                     legalMoves.push_back(m);
                 }
 
-                undo_move(m);
-                restore_state(state);
+                undo_move(m,u);
+            }
+        }
+    }
+
+    return legalMoves;
+}
+
+std::vector<Move> Board::generate_captures(){
+    std::vector<Move> legalMoves;
+
+    for(int row = 0; row < 8; row++){
+        for(int col = 0; col < 8; col++){
+
+            int piece = get_piece(row, col);
+
+            if(piece == 0) continue;
+            if(whiteTurn  && piece < 0) continue;
+            if(!whiteTurn && piece > 0) continue;
+
+            std::vector<Move> moves;
+
+            switch(abs(piece)){
+
+                case 1:{ // pawn — only diagonal captures + en passant
+                    int dir = (piece > 0) ? -1 : 1;
+
+                    // left capture
+                    Move c1{ row, col, row + dir, col - 1 };
+                    if(in_bounds(c1.toRow, c1.toCol)){
+                        int target = get_piece(c1.toRow, c1.toCol);
+                        bool isEnPassant = (c1.toRow == enPassantRow && c1.toCol == enPassantCol);
+                        if((target != 0 && !same_color(piece, target)) || isEnPassant)
+                            if(is_valid_move(c1)) moves.push_back(c1);
+                    }
+
+                    // right capture
+                    Move c2{ row, col, row + dir, col + 1 };
+                    if(in_bounds(c2.toRow, c2.toCol)){
+                        int target = get_piece(c2.toRow, c2.toCol);
+                        bool isEnPassant = (c2.toRow == enPassantRow && c2.toCol == enPassantCol);
+                        if((target != 0 && !same_color(piece, target)) || isEnPassant)
+                            if(is_valid_move(c2)) moves.push_back(c2);
+                    }
+
+                    break;
+                }
+
+                case 3:{ // knight
+                    int offsets[8][2] = {
+                        {-2,-1},{-2,1},{-1,-2},{-1,2},
+                        {1,-2},{1,2},{2,-1},{2,1}
+                    };
+
+                    for(auto& o : offsets){
+                        Move m{ row, col, row + o[0], col + o[1] };
+                        if(in_bounds(m.toRow, m.toCol)){
+                            int target = get_piece(m.toRow, m.toCol);
+                            if(target != 0 && !same_color(piece, target))
+                                if(is_valid_move(m)) moves.push_back(m);
+                        }
+                    }
+                    break;
+                }
+
+                case 6:{ // king — only squares with enemy pieces (no castling)
+                    for(int dr = -1; dr <= 1; dr++){
+                        for(int dc = -1; dc <= 1; dc++){
+                            if(dr == 0 && dc == 0) continue;
+                            Move m{ row, col, row + dr, col + dc };
+                            if(in_bounds(m.toRow, m.toCol)){
+                                int target = get_piece(m.toRow, m.toCol);
+                                if(target != 0 && !same_color(piece, target))
+                                    if(is_valid_move(m)) moves.push_back(m);
+                            }
+                        }
+                    }
+                    break;
+                }
+
+                case 2:
+                case 4:
+                case 5:{ // bishop / rook / queen — slide until blocker, only add if enemy
+                    std::vector<std::pair<int,int>> dirs;
+
+                    if(abs(piece) == 2 || abs(piece) == 5){
+                        dirs.push_back({-1,-1}); dirs.push_back({-1,1});
+                        dirs.push_back({ 1,-1}); dirs.push_back({ 1,1});
+                    }
+                    if(abs(piece) == 4 || abs(piece) == 5){
+                        dirs.push_back({-1,0}); dirs.push_back({1,0});
+                        dirs.push_back({0,-1}); dirs.push_back({0,1});
+                    }
+
+                    for(auto& d : dirs){
+                        int r = row + d.first;
+                        int c = col + d.second;
+
+                        while(in_bounds(r, c)){
+                            int target = get_piece(r, c);
+
+                            if(target != 0){
+                                // blocker found — add only if enemy
+                                if(!same_color(piece, target)){
+                                    Move m{ row, col, r, c };
+                                    if(is_valid_move(m)) moves.push_back(m);
+                                }
+                                break; // stop sliding regardless
+                            }
+
+                            r += d.first;
+                            c += d.second;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            // same legality filter as generate_moves
+            for(Move& m : moves){
+                bool movingWhite = get_piece(m.fromRow, m.fromCol) > 0;
+                
+                Undo u;
+                make_move(m,u);
+
+                if(!is_in_check(movingWhite)){
+                    legalMoves.push_back(m);
+                }
+
+                undo_move(m,u);
             }
         }
     }
@@ -1123,7 +1323,7 @@ int Board::evaluate_position(){
     return score;
 }
 
-void Board::undo_move(const Move& m){
+void Board::undo_move(const Move& m, Undo& u){
 
     whiteTurn = !whiteTurn;
     int piece = get_piece(m.toRow, m.toCol);
@@ -1139,15 +1339,13 @@ void Board::undo_move(const Move& m){
     board[m.toRow][m.toCol] = m.capturedPiece;
 
     if(m.isEnPassant){
-        board[m.toRow][m.toCol] = 0;
 
-        if(piece > 0){
-            board[m.toRow + 1][m.toCol] = -1;
-        }
+        board[m.toRow][m.toCol]=0;
 
-        else{
-            board[m.toRow - 1][m.toCol] = 1;
-        }
+        if(piece>0)
+            board[m.toRow+1][m.toCol]=m.capturedPiece;
+        else
+            board[m.toRow-1][m.toCol]=m.capturedPiece;
     }
 
     if(m.isCastle){
@@ -1173,13 +1371,26 @@ void Board::undo_move(const Move& m){
             }
         }
     }
-
-    enPassantRow = -1;
-    enPassantCol = -1;
-
-    if(!positionHistory.empty()){
-        positionHistory.pop_back();
+    
+    if(!repetitionHistory.empty()){
+        repetitionHistory.pop_back();
     }
+
+    whiteKingMoved = u.oldWhiteKingMoved;
+    blackKingMoved = u.oldBlackKingMoved;
+
+    whiteKingsideRookMoved = u.oldWKRookMoved;
+    whiteQueensideRookMoved = u.oldWQRookMoved;
+
+    blackKingsideRookMoved = u.oldBKRookMoved;
+    blackQueensideRookMoved = u.oldBQRookMoved;
+
+    fiftymoveClock = u.oldFiftyMove;
+
+    enPassantRow = u.oldEnPassantRow;
+    enPassantCol = u.oldEnPassantCol;
+
+    zobristKey=u.oldHash;
 }
     
 

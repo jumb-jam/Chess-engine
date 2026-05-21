@@ -4,6 +4,18 @@
 #include "gamestate.h"
 #include <vector>
 #include <string>
+#include <cstdint>
+
+
+const int pieceValue[7]={
+        0,
+        100,   // pawn
+        330,   // bishop
+        320,   // knight
+        500,   // rook
+        900,   // queen
+        20000  // king
+};
 
 struct Move{
     int fromRow;
@@ -18,7 +30,30 @@ struct Move{
     bool isPromotion = false;
 
     int promotionPiece = 0;
+    int score=0;
 };
+
+struct Undo{
+
+    int capturedPiece;
+
+    int oldEnPassantRow;
+    int oldEnPassantCol;
+
+    bool oldWhiteKingMoved;
+    bool oldBlackKingMoved;
+
+    bool oldWKRookMoved;
+    bool oldWQRookMoved;
+
+    bool oldBKRookMoved;
+    bool oldBQRookMoved;
+
+    int oldFiftyMove;
+
+    uint64_t oldHash;
+};
+
 
 class Board{
 private:
@@ -40,18 +75,19 @@ private:
 
     int fiftymoveClock=0;
 
-    std::vector<std::string> positionHistory;
+    uint64_t zobristKey=0;
+    std::vector<uint64_t> repetitionHistory;
 
 public:
     void init_board();
 
     void print_board();
 
-    std::string get_position_key() const;
+    int pieceIndex(int piece);
 
-    GameState save_state() const;
+    void initialize_hash();
 
-    void restore_state(const GameState& state);
+    uint64_t get_hash() const;
 
     bool is_white_turn();
 
@@ -65,7 +101,9 @@ public:
 
     int get_piece(int row, int col);
 
-    bool make_move(Move& m);
+    int castleRights();
+
+    bool make_move(Move& m, Undo& u);
 
     bool is_valid_move(const Move& m);
 
@@ -75,12 +113,14 @@ public:
 
     std::vector<Move> generate_moves();
 
+    std::vector<Move> generate_captures();
+
     int get_pst_score(int piece, int row, int col);
 
     int count_piece_mobility(int row, int col);
 
     int evaluate_position();
 
-    void undo_move(const Move& m);
+    void undo_move(const Move& m, Undo& u);
 };
 
