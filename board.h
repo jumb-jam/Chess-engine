@@ -40,6 +40,8 @@ struct Undo{
     int oldEnPassantRow;
     int oldEnPassantCol;
 
+    bool wasNullMove;
+
     bool oldWhiteKingMoved;
     bool oldBlackKingMoved;
 
@@ -122,5 +124,9 @@ public:
     int evaluate_position();
 
     void undo_move(const Move& m, Undo& u);
+
+    void make_null_move(Undo& u);
+
+    void undo_null_move(Undo& u);
 };
 

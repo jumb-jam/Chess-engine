@@ -607,7 +607,7 @@ bool Board::is_valid_move(const Move& m){
 
             if(piece > 0){   //checking castling legality
 
-                if(!whiteKingMoved && rowDiff==0 && colDiff==2){
+                if(!whiteKingMoved && rowDiff==0 && abs(colDiff)==2){
                    
                     if(m.toCol==6 &&
                     !whiteKingsideRookMoved &&
@@ -638,7 +638,7 @@ bool Board::is_valid_move(const Move& m){
 
             else{
 
-                if(!blackKingMoved && rowDiff == 0 && colDiff == 2){
+                if(!blackKingMoved && rowDiff == 0 && abs(colDiff) == 2){
 
                     if(m.toCol==6 &&
                     !blackKingsideRookMoved &&
@@ -1393,5 +1393,28 @@ void Board::undo_move(const Move& m, Undo& u){
     zobristKey=u.oldHash;
 }
     
+void Board::make_null_move(Undo& u) {
+    u.oldEnPassantRow = enPassantRow;
+    u.oldEnPassantCol = enPassantCol;
+    u.oldHash = zobristKey;
 
+    if(enPassantCol != -1)
+        zobristKey ^= Zobrist::enPassant[enPassantCol];
+
+    enPassantRow = -1;
+    enPassantCol = -1;
+
+    whiteTurn = !whiteTurn;
+    zobristKey ^= Zobrist::sideToMove;
+
+    repetitionHistory.push_back(zobristKey);
+}
+
+void Board::undo_null_move(Undo& u) {
+    repetitionHistory.pop_back();
+    whiteTurn = !whiteTurn;
+    enPassantRow = u.oldEnPassantRow;
+    enPassantCol = u.oldEnPassantCol;
+    zobristKey = u.oldHash;
+}
 

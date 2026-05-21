@@ -2,241 +2,232 @@
 #include "engine.h"
 #include <algorithm>
 
-int Engine::get_mvv_lva(Board& board,const Move& m){
-    int attacker =abs(board.get_piece(m.fromRow,m.fromCol));
-    int victim =abs(board.get_piece( m.toRow,m.toCol));
+int Engine::get_mvv_lva(Board& board, const Move& m){
+    int attacker = abs(board.get_piece(m.fromRow, m.fromCol));
+    int victim   = abs(board.get_piece(m.toRow,   m.toCol));
 
-    if(victim==0){
-        return 0;
-    }
+    if(victim == 0) return 0;
 
-    return pieceValue[victim]*10 - pieceValue[attacker];
+    return pieceValue[victim] * 10 - pieceValue[attacker];
 }
 
-int Engine::alphabeta(Board& board, int depth, int alpha, int beta){
+bool Engine::sameMove(const Move& a, const Move& b){
+    return a.fromRow == b.fromRow && a.fromCol == b.fromCol
+        && a.toRow   == b.toRow   && a.toCol   == b.toCol;
+}
+
+Engine::Engine(){
+    std::fill(&historyTable[0][0][0], &historyTable[0][0][0] + 2*64*64, 0);
+
+    for(int i = 0; i < max_ply; i++){
+        killerMoves[i][0] = Move{};
+        killerMoves[i][1] = Move{};
+    }
+}
+
+
+int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, bool isNullMove){
     nodes++;
+    ply = std::min(ply, max_ply - 1);
 
-    uint64_t key=board.get_hash();
+    uint64_t key = board.get_hash();
 
-    int alphaOrig=alpha;
-    int betaOrig=beta;
+    int alphaOrig = alpha;
+    int betaOrig  = beta;
 
-    auto it=tt.find(key);
-    if(it!=tt.end()){
-
-        TTEntry& entry=it->second;
-
-        if(entry.depth>=depth){
-
-            if(entry.flag==EXACT)
+    
+    auto it = tt.find(key);
+    if(it != tt.end()){
+        TTEntry& entry = it->second;
+        if(entry.depth >= depth && entry.generation == currentgeneration){
+            if(entry.flag == EXACT)
                 return entry.score;
-
-            if(entry.flag==LOWERBOUND)
-                alpha=std::max(alpha,entry.score);
-
-            if(entry.flag==UPPERBOUND)
-                beta=std::min(beta,entry.score);
-
-            if(alpha>=beta)
+            if(entry.flag == LOWERBOUND)
+                alpha = std::max(alpha, entry.score);
+            if(entry.flag == UPPERBOUND)
+                beta  = std::min(beta,  entry.score);
+            if(alpha >= beta)
                 return entry.score;
         }
     }
 
     
+    if(depth == 0)
+        return quiescence(board, alpha, beta);
 
-    if(depth == 0){
-        return quiescence(board,alpha,beta,3);
-        //return board.evaluate_position();
+    
+    if(board.is_fifty_move_draw())    return 0;
+    if(board.is_threefold_repetition()) return 0;
+
+    
+    bool inCheck = board.is_in_check(board.is_white_turn());
+    if(!isNullMove && !inCheck && depth >= 3){
+        Undo u;
+        board.make_null_move(u);
+        
+        int score = -alphabeta(board, depth - 3, -beta, -beta + 1, ply + 1, true);
+        board.undo_null_move(u);
+
+        if(score >= beta){
+            nullMoveCuts++;
+            return beta;
+        }
     }
 
-    if(board.is_fifty_move_draw()){
-        return 0;
-    }
-
-    if(board.is_threefold_repetition()){
-        return 0;
-    }
-
+   
     std::vector<Move> moves = board.generate_moves();
 
     if(moves.empty()){
-        if(board.is_in_check(board.is_white_turn())){
-            if(board.is_white_turn())
-                return -100000 + depth;
-            else
-                return 100000 - depth;
-        }
-
-        return 0;
+        if(inCheck)
+            return -100000 + ply;   
+        return 0;                  
     }
 
     
-
-    
-
-    if(it!=tt.end()){
-        Move ttMove=it->second.bestMove;
-
-        for(int i=0;i<moves.size();i++){
-            Move&m=moves[i];
-
-            if(m.fromRow==ttMove.fromRow && m.fromCol==ttMove.fromCol && m.toRow==ttMove.toRow && m.toCol==ttMove.toCol){
-                std::swap(moves[0],moves[i]);
-                break;
-            }
+    for(int i = 0; i < (int)moves.size(); i++){
+        Move& m = moves[i];
+        
+        if(it != tt.end() && sameMove(m, it->second.bestMove)){
+            m.score = 1000000;
+            continue;
         }
-    }
 
-    
-
-
-    /*
-    std::sort(moves.begin(),moves.end(),[](const Move& a,const Move& b){
-        return a.capturedPiece != 0 && b.capturedPiece == 0;
-    });
-    
-    std::stable_sort(moves.begin(),moves.end(),[&](const Move& a,const Move& b){
-        return get_mvv_lva(board,a) > get_mvv_lva(board,b);
-    });
-    */
-
-    for(Move& m : moves){
         int target   = abs(board.get_piece(m.toRow,   m.toCol));
         int attacker = abs(board.get_piece(m.fromRow, m.fromCol));
-        if(target != 0)
-            m.score = 10000 + pieceValue[target] * 10 - pieceValue[attacker];
-        else if(m.isPromotion)
-            m.score = 9000;
-        else
-            m.score = 0;
+
+        if(target != 0){
+            m.score = 100000 + pieceValue[target] * 10 - pieceValue[attacker];
+        }
+        else if(sameMove(m, killerMoves[ply][0])){
+            m.score = 90000;
+        }
+        else if(sameMove(m, killerMoves[ply][1])){
+            m.score = 89000;
+        }
+        else{
+            int color = board.is_white_turn() ? 0 : 1;
+            int from  = m.fromRow * 8 + m.fromCol;
+            int to    = m.toRow   * 8 + m.toCol;
+            m.score   = historyTable[color][from][to];
+        }
     }
-    std::sort(moves.begin()+1, moves.end(), [](const Move& a, const Move& b){
+    std::sort(moves.begin(), moves.end(), [](const Move& a, const Move& b){
         return a.score > b.score;
     });
 
-    bool maximizingPlayer = board.is_white_turn();
-    Move bestMove;
-    int bestScore=0;
+   
+    int  bestScore = -999999;
+    Move bestMove  = moves[0];
 
-    if(maximizingPlayer){
-        bestScore = -999999;
+    int moveIndex = 0;
 
-        for(Move& m : moves){
-            Undo u;
-            board.make_move(m,u);
+    for(Move& m : moves){
+        Undo u;
+        board.make_move(m, u);
 
-            int score = alphabeta(board, depth - 1, alpha, beta);
+        int score;
 
-            board.undo_move(m,u);
+        bool doLMR = moveIndex >= 3
+            && depth >= 3
+            && m.capturedPiece == 0
+            && !sameMove(m, killerMoves[ply][0])
+            && !sameMove(m, killerMoves[ply][1])
+            && !inCheck
+            && !board.is_in_check(board.is_white_turn());
+        
+        if(doLMR){
+            
+            int reduction = 1;
+            if(moveIndex >= 6) reduction = 2; 
 
-            if(score > bestScore){
-                bestScore = score;
-                bestMove=m;
-            }
+            score = -alphabeta(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, false);
+            
             if(score > alpha){
-                alpha = score;
-            }
-            if(alpha >= beta){
-                break;
+                score = -alphabeta(board, depth - 1, -beta, -alpha, ply + 1, false);
             }
         }
-    }
+        else{
+            score = -alphabeta(board, depth - 1, -beta, -alpha, ply + 1, false);
+        }
 
-    else{
-        bestScore = 999999;
-
-        for(Move& m : moves){
-            Undo u;
-            board.make_move(m,u);
-
-            int score = alphabeta(board, depth - 1, alpha, beta);
-
-            board.undo_move(m,u);
-
-            if(score < bestScore){
-                bestScore = score;
-                bestMove=m;
-            }
-            if(score < beta){
-                beta = score;
-            }
-            if(alpha >= beta){
-                break;
-            }
         
+
+        board.undo_move(m, u);
+
+        if(score > bestScore){
+            bestScore = score;
+            bestMove  = m;
+        }
+        if(score > alpha)
+            alpha = score;
+
+        if(alpha >= beta){
+            if(m.capturedPiece == 0){
+                if(!sameMove(m, killerMoves[ply][0])){
+                    killerMoves[ply][1] = killerMoves[ply][0];
+                    killerMoves[ply][0] = m;
+                }
+                int color = board.is_white_turn() ? 1 : 0; 
+                int from = m.fromRow * 8 + m.fromCol;
+                int to  = m.toRow * 8 + m.toCol;
+                historyTable[color][from][to] += depth * depth;
+            }
+            break;
         }
     }
 
     TTEntry entry;
-    entry.depth=depth;
-    entry.score=bestScore;
-    entry.bestMove=bestMove;
+    entry.depth = depth;
+    entry.score = bestScore;
+    entry.bestMove = bestMove;
+    entry.generation = currentgeneration;
 
-    if (bestScore <= alphaOrig) entry.flag = UPPERBOUND;
-    else if (bestScore >= betaOrig) entry.flag = LOWERBOUND;
-    else  entry.flag = EXACT;
+    if(bestScore <= alphaOrig) entry.flag = UPPERBOUND;
+    else if(bestScore >= betaOrig) entry.flag = LOWERBOUND;
+    else entry.flag = EXACT;
 
     tt[key] = entry;
     return bestScore;
-
 }
 
-int Engine::quiescence(Board& board, int alpha, int beta, int depth){
-    nodes++;
+int Engine::quiescence(Board& board, int alpha, int beta){
+    qnodes++;
+    
     int standPat = board.evaluate_position();
+    if(!board.is_white_turn()) standPat = -standPat;
 
-    if(depth <= 0){
-        return standPat;
-    }
+    if(standPat >= beta) return beta;
+    if(standPat < alpha - 900)  return alpha;   
 
-    if(standPat >= beta){
-        return beta;
-    }
+    alpha = std::max(alpha, standPat);
 
-    const int delta = 900; 
-    if(standPat < alpha - delta){
-        return alpha;
-    }
+    std::vector<Move> captures = board.generate_captures();
 
-    alpha = std::max(alpha,standPat);
-
-    std::vector<Move> captures;
-
-    for(Move& m : board.generate_captures()){
-
-        int attacker =abs(board.get_piece(m.fromRow,m.fromCol));
-        int victim = abs(board.get_piece(m.toRow,m.toCol));
-
-        if(pieceValue[victim] < pieceValue[attacker] - 300) continue;
-
-        captures.push_back(m);
-    }
-
-    std::sort(captures.begin(),captures.end(),[&](const Move& a,const Move& b){  
-        return get_mvv_lva(board,a) > get_mvv_lva(board,b);
+    std::sort(captures.begin(), captures.end(), [&](const Move& a, const Move& b){
+        return get_mvv_lva(board, a) > get_mvv_lva(board, b);
     });
 
     for(Move& m : captures){
         Undo u;
-        board.make_move(m,u);
+        board.make_move(m, u);
 
-        int score= quiescence(board,alpha,beta,depth-1);
+        int score = -quiescence(board, -beta, -alpha);
 
-        board.undo_move(m,u);
+        board.undo_move(m, u);
 
-        if(score>=beta){
-            return beta;
-        }
-
-        alpha=std::max(alpha,score);
+        if(score >= beta)  return beta;
+        alpha = std::max(alpha, score);
     }
 
     return alpha;
 }
 
-Move Engine::find_best_move(Board& board, int maxDepth){
-    nodes = 0;
 
+Move Engine::find_best_move(Board& board, int maxDepth){
+    currentgeneration++;
+    nullMoveCuts = 0;
+    qnodes = 0;
+   
     BookMove bm;
     if(openingBook.probe(board.get_hash(), bm)){
         Move m;
@@ -245,61 +236,58 @@ Move Engine::find_best_move(Board& board, int maxDepth){
         std::cout << "Book move\n";
         return m;
     }
-    
-    
+
     std::vector<Move> moves = board.generate_moves();
     if(moves.empty()) return Move{};
 
-    bool maximizingPlayer = board.is_white_turn();
     Move bestMove = moves[0];
     Move bestMoveThisIteration = moves[0];
 
     for(int depth = 1; depth <= maxDepth; depth++){
+        nodes = 0;
+        for(int c = 0; c < 2; c++)
+            for(int f = 0; f < 64; f++)
+                for(int t = 0; t < 64; t++)
+                    historyTable[c][f][t] /= 2;
 
-        // pin previous best at index 0
+        
         if(hasPreviousBest){
             bool found = false;
             for(int i = 0; i < (int)moves.size(); i++){
-                Move& m = moves[i];
-                if(m.fromRow == bestMoveOverall.fromRow &&
-                   m.fromCol == bestMoveOverall.fromCol &&
-                   m.toRow   == bestMoveOverall.toRow   &&
-                   m.toCol   == bestMoveOverall.toCol){
+                if(sameMove(moves[i], bestMoveOverall)){
                     std::swap(moves[0], moves[i]);
-                    found=true;
+                    found = true;
                     break;
                 }
             }
-
             if(!found) hasPreviousBest = false;
         }
+
         int sortStart = hasPreviousBest ? 1 : 0;
-        std::stable_sort(moves.begin() + sortStart, moves.end(), [&](const Move& a, const Move& b){
-            auto scoreMove = [&](const Move& m) -> int {
-                int target   = abs(board.get_piece(m.toRow,   m.toCol));
-                int attacker = abs(board.get_piece(m.fromRow, m.fromCol));
-                if(target != 0)   return 10000 + pieceValue[target] * 10 - pieceValue[attacker];
-                if(m.isPromotion) return 9000;
-                return 0;
-            };
-            return scoreMove(a) > scoreMove(b);
+        std::sort(moves.begin() + sortStart, moves.end(), [&](const Move& a, const Move& b){
+            int ta = abs(board.get_piece(a.toRow, a.toCol));
+            int aa = abs(board.get_piece(a.fromRow, a.fromCol));
+            int tb = abs(board.get_piece(b.toRow, b.toCol));
+            int ab = abs(board.get_piece(b.fromRow, b.fromCol));
+
+            int scoreA = ta ? 10000 + pieceValue[ta] * 10 - pieceValue[aa] : 0;
+            int scoreB = tb ? 10000 + pieceValue[tb] * 10 - pieceValue[ab] : 0;
+
+            return scoreA > scoreB;
         });
 
-        int bestScore = maximizingPlayer ? -999999 : 999999;
+        
+        int bestScore = -999999;
 
         for(Move& m : moves){
             Undo u;
-            board.make_move(m,u);
+            board.make_move(m, u);
 
-            int score = alphabeta(board, depth - 1, -999999, 999999);
+            int score = -alphabeta(board, depth - 1, -999999, 999999, 0, false);
 
-            board.undo_move(m,u);
+            board.undo_move(m, u);
 
-            if(maximizingPlayer && score > bestScore){
-                bestScore = score;
-                bestMoveThisIteration = m;
-            }
-            if(!maximizingPlayer && score < bestScore){
+            if(score > bestScore){
                 bestScore = score;
                 bestMoveThisIteration = m;
             }
@@ -309,7 +297,11 @@ Move Engine::find_best_move(Board& board, int maxDepth){
         hasPreviousBest = true;
         bestMove = bestMoveThisIteration;
 
-        std::cout << "Depth " << depth << " | nodes: " << nodes << " | eval: " << bestScore << "\n";
+        std::cout << "Depth " << depth
+                  << " | nodes: "     << nodes
+                  << " | qnodes: "    << qnodes
+                  << " | nullCuts: "  << nullMoveCuts
+                  << " | eval: "      << bestScore << "\n";
     }
 
     return bestMove;

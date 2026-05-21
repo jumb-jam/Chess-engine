@@ -17,11 +17,11 @@ int main(){
     
     Undo u;
     Engine engine;
-    engine.openingBook.init();
+    //engine.openingBook.init();
 
     for(int i=0;i<50;i++){
         board.print_board();
-        Move m=engine.find_best_move(board,4);
+        Move m=engine.find_best_move(board,7);
         board.make_move(m,u);
         //std::cout << "Eval: " << board.evaluate_position() << "\n";
     }
