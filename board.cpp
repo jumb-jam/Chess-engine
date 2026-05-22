@@ -6,6 +6,8 @@
 #include "evaluation.h"
 #include "zobrist.h"
 
+#include <sstream>
+
 
 
 void Board::init_board(){
@@ -145,6 +147,77 @@ void Board::initialize_hash(){
 
 uint64_t Board::get_hash() const{
     return zobristKey;
+}
+
+void Board::load_fen(const std::string& fen){
+    for(int r = 0; r < 8; r++)
+        for(int c = 0; c < 8; c++)
+            board[r][c] = 0;
+
+    std::istringstream iss(fen);
+    std::string placement, side, castling, ep;
+    int halfmove = 0, fullmove = 1;
+
+    iss >> placement >> side >> castling >> ep >> halfmove >> fullmove;
+
+    int row = 0, col = 0;
+    for(char c : placement){
+        if(c == '/'){
+            row++;
+            col = 0;
+        }
+        else if(isdigit(c)){
+            col += c - '0';
+        }
+        else{
+            int piece = 0;
+            switch(tolower(c)){
+                case 'p': piece = 1; break;
+                case 'b': piece = 2; break;
+                case 'n': piece = 3; break;
+                case 'r': piece = 4; break;
+                case 'q': piece = 5; break;
+                case 'k': piece = 6; break;
+            }
+            if(islower(c)) piece = -piece; 
+            board[row][col] = piece;
+            col++;
+        }
+    }
+
+    whiteTurn = (side == "w");
+
+    whiteKingMoved            = true;
+    blackKingMoved            = true;
+    whiteKingsideRookMoved    = true;
+    whiteQueensideRookMoved   = true;
+    blackKingsideRookMoved    = true;
+    blackQueensideRookMoved   = true;
+
+    if(castling != "-"){
+        for(char c : castling){
+            switch(c){
+                case 'K': whiteKingMoved = false; whiteKingsideRookMoved  = false; break;
+                case 'Q': whiteKingMoved = false; whiteQueensideRookMoved = false; break;
+                case 'k': blackKingMoved = false; blackKingsideRookMoved  = false; break;
+                case 'q': blackKingMoved = false; blackQueensideRookMoved = false; break;
+            }
+        }
+    }
+
+    enPassantRow = -1;
+    enPassantCol = -1;
+    if(ep != "-"){
+        enPassantCol = ep[0] - 'a';          
+        enPassantRow = 7 - (ep[1] - '1');   
+    }
+
+    fiftymoveClock = halfmove;
+
+    initialize_hash();
+
+    repetitionHistory.clear();
+    repetitionHistory.push_back(zobristKey);
 }
 
 bool Board::is_white_turn(){
@@ -1262,62 +1335,199 @@ int Board::count_piece_mobility(int row, int col){
 
 int Board::evaluate_position(){
 
-    int score=0;
-
-    for(int row=0;row<8;row++){
-        for(int col=0;col<8;col++){
-
-            int piece=get_piece(row,col);
-
-            if(piece==0){
-                continue;
-            }
-
-            int value=0;
-
-            switch(abs(piece)){
-                case 1:
-                    value=100;
-                    break;
-                case 2:
-                    value=330;
-                    break;
-                case 3:
-                    value=320;
-                    break;
-                case 4:
-                    value=500;
-                    break;
-                case 5:
-                    value=900;
-                    break;
-                case 6:
-                    value=20000;
-                    break;
-            }
-
-            int pst=get_pst_score(piece,row,col);
-            int mobility=count_piece_mobility(row,col);
-
-            int mobilityBonus=0;
-
-            switch(abs(piece)){
-                case 2:
-                case 3:
-                    mobilityBonus=mobility*4;
-                    break;
-                case 4:
-                    mobilityBonus=mobility*2;
-                    break;
-                case 5:
-                    mobilityBonus=mobility;
-                    break;
-            }
-
-            int total = value+pst+mobilityBonus;
-
-            score += (piece>0) ? total:-total;
+    const int PHASE_LIMIT = 12; 
+    int phase = 0;
+    for(int r = 0; r < 8; r++){
+        for(int c = 0; c < 8; c++){
+            int p = abs(get_piece(r, c));
+            if(p == 2 || p == 3) phase += 1;
+            if(p == 4)           phase += 2;
+            if(p == 5)           phase += 4;
         }
+    }
+    bool endgame = (phase <= PHASE_LIMIT);
+
+   
+    int whitePawns[8] = {};
+    int blackPawns[8] = {};
+  
+    int whitePawnRow[8]; 
+    int blackPawnRow[8];
+    for(int c = 0; c < 8; c++){
+        whitePawnRow[c] = 7; 
+        blackPawnRow[c] = 0;
+    }
+
+    for(int r = 0; r < 8; r++){
+        for(int c = 0; c < 8; c++){
+            int p = get_piece(r, c);
+            if(p ==  1){ whitePawns[c]++; whitePawnRow[c] = std::min(whitePawnRow[c], r); }
+            if(p == -1){ blackPawns[c]++; blackPawnRow[c] = std::max(blackPawnRow[c], r); }
+        }
+    }
+
+    int score = 0;
+
+    int whiteBishops = 0;
+    int blackBishops = 0;
+
+    for(int row = 0; row < 8; row++){
+        for(int col = 0; col < 8; col++){
+            int piece = get_piece(row, col);
+            if(piece == 0) continue;
+
+            bool isWhite = piece > 0;
+            int  type    = abs(piece);
+
+          
+            int value = 0;
+            switch(type){
+                case 1: value = 100;   break;
+                case 2: value = 330;   break;
+                case 3: value = 320;   break;
+                case 4: value = 500;   break;
+                case 5: value = 900;   break;
+                case 6: value = 20000; break;
+            }
+
+            
+            int pstRow = isWhite ? row : 7 - row;
+            int pst = 0;
+            switch(type){
+                case 1: pst = pawnTable[pstRow][col];   break;
+                case 2: pst = bishopTable[pstRow][col]; break;
+                case 3: pst = knightTable[pstRow][col]; break;
+                case 4: pst = rookTable[pstRow][col];   break;
+                case 5: pst = queenTable[pstRow][col];  break;
+                case 6: pst = endgame
+                            ? kingEndgameTable[pstRow][col]
+                            : kingTable[pstRow][col];   break;
+            }
+
+           
+            int mobility     = count_piece_mobility(row, col);
+            int mobilityBonus = 0;
+            switch(type){
+                case 2: case 3: mobilityBonus = mobility * 4; break;
+                case 4:         mobilityBonus = mobility * 2; break;
+                case 5:         mobilityBonus = mobility * 1; break;
+            }
+
+           
+            if(type == 2){
+                if(isWhite) whiteBishops++;
+                else        blackBishops++;
+            }
+
+            
+            int pawnBonus = 0;
+            if(type == 1){
+                
+                if(isWhite && whitePawns[col] > 1) pawnBonus -= 20;
+                if(!isWhite && blackPawns[col] > 1) pawnBonus -= 20;
+
+                
+                bool isolated = true;
+                if(col > 0 && (isWhite ? whitePawns[col-1] : blackPawns[col-1]) > 0) isolated = false;
+                if(col < 7 && (isWhite ? whitePawns[col+1] : blackPawns[col+1]) > 0) isolated = false;
+                if(isolated) pawnBonus -= 15;
+
+               
+                bool passed = true;
+                if(isWhite){
+                   
+                    for(int fc = std::max(0, col-1); fc <= std::min(7, col+1); fc++){
+                        
+                        if(blackPawns[fc] > 0 && blackPawnRow[fc] <= row){
+                            passed = false;
+                            break;
+                        }
+                    }
+                } else {
+                    for(int fc = std::max(0, col-1); fc <= std::min(7, col+1); fc++){
+                        if(whitePawns[fc] > 0 && whitePawnRow[fc] >= row){
+                            passed = false;
+                            break;
+                        }
+                    }
+                }
+                if(passed){
+                  
+                    int rank = isWhite ? (7 - row) : row; 
+                    const int passedBonus[8] = {0, 10, 20, 30, 50, 75, 100, 0};
+                    pawnBonus += passedBonus[rank];
+                }
+            }
+
+           
+            int rookBonus = 0;
+            if(type == 4){
+                bool noFriendlyPawn = (isWhite ? whitePawns[col] : blackPawns[col]) == 0;
+                bool noEnemyPawn    = (isWhite ? blackPawns[col] : whitePawns[col]) == 0;
+
+                if(noFriendlyPawn && noEnemyPawn) rookBonus += 20; 
+                else if(noFriendlyPawn)           rookBonus += 10; 
+            }
+
+            int total = value + pst + mobilityBonus + pawnBonus + rookBonus;
+            score += isWhite ? total : -total;
+        }
+    }
+
+   
+    if(whiteBishops >= 2) score += 30;
+    if(blackBishops >= 2) score -= 30;
+
+  
+    if(!endgame){
+        
+        int whiteKingRow = -1, whiteKingCol = -1;
+        int blackKingRow = -1, blackKingCol = -1;
+        for(int r = 0; r < 8; r++){
+            for(int c = 0; c < 8; c++){
+                if(get_piece(r,c) ==  6){ whiteKingRow = r; whiteKingCol = c; }
+                if(get_piece(r,c) == -6){ blackKingRow = r; blackKingCol = c; }
+            }
+        }
+
+        
+        auto pawnShield = [&](int kingRow, int kingCol, bool kingIsWhite) -> int {
+            int shield = 0;
+            int dir    = kingIsWhite ? -1 : 1; 
+            int pawn   = kingIsWhite ?  1 : -1;
+
+            for(int dc = -1; dc <= 1; dc++){
+                int c = kingCol + dc;
+                if(c < 0 || c > 7) continue;
+               
+                int r1 = kingRow + dir;
+                if(r1 >= 0 && r1 < 8 && get_piece(r1, c) == pawn) shield += 10;
+                
+                int r2 = kingRow + 2*dir;
+                if(r2 >= 0 && r2 < 8 && get_piece(r2, c) == pawn) shield += 5;
+            }
+            return shield;
+        };
+
+        if(whiteKingRow != -1) score += pawnShield(whiteKingRow, whiteKingCol, true);
+        if(blackKingRow != -1) score -= pawnShield(blackKingRow, blackKingCol, false);
+
+        
+        auto kingOpenFilePenalty = [&](int kingCol, bool kingIsWhite) -> int {
+            int penalty = 0;
+            for(int dc = -1; dc <= 1; dc++){
+                int c = kingCol + dc;
+                if(c < 0 || c > 7) continue;
+                bool noFriendly = (kingIsWhite ? whitePawns[c] : blackPawns[c]) == 0;
+                bool noEnemy    = (kingIsWhite ? blackPawns[c] : whitePawns[c]) == 0;
+                if(noFriendly && noEnemy) penalty += 20; 
+                else if(noFriendly)      penalty += 10; 
+            }
+            return penalty;
+        };
+
+        if(whiteKingRow != -1) score -= kingOpenFilePenalty(whiteKingCol, true);
+        if(blackKingRow != -1) score += kingOpenFilePenalty(blackKingCol, false);
     }
 
     return score;

@@ -3,6 +3,10 @@
 #include "book.h"
 #include <unordered_map>
 
+#include <chrono>
+using Clock = std::chrono::steady_clock;
+using TimePoint = std::chrono::time_point<Clock>;
+
 #define max_ply 64
 
 
@@ -24,6 +28,14 @@ struct TTEntry{
 
 class Engine{
 private:
+    TimePoint searchStart;
+
+    int       timeLimitMs = -1;
+
+    bool      outOfTime   = false;
+
+    bool      check_time();
+
     int nullMoveCuts = 0;
 
     int get_mvv_lva(Board& board,const Move& m);
@@ -55,6 +67,8 @@ public:
     bool hasPreviousBest = false;
 
     Move find_best_move(Board& board, int depth);
+
+    Move find_best_move_timed(Board& board, int timeLimitMs);
 
     
 };

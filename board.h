@@ -91,6 +91,8 @@ public:
 
     uint64_t get_hash() const;
 
+    void load_fen(const std::string& fen);
+
     bool is_white_turn();
 
     bool is_checkmate();

@@ -2,6 +2,13 @@
 #include "engine.h"
 #include <algorithm>
 
+bool Engine::check_time(){
+    if(timeLimitMs < 0) return false;
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        Clock::now() - searchStart).count();
+    return elapsed >= timeLimitMs;
+}
+
 int Engine::get_mvv_lva(Board& board, const Move& m){
     int attacker = abs(board.get_piece(m.fromRow, m.fromCol));
     int victim   = abs(board.get_piece(m.toRow,   m.toCol));
@@ -27,8 +34,14 @@ Engine::Engine(){
 
 
 int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, bool isNullMove){
+    if(nodes % 2048 == 0 && check_time()){
+        outOfTime = true;
+        return 0;
+    }
     nodes++;
     ply = std::min(ply, max_ply - 1);
+
+    
 
     uint64_t key = board.get_hash();
 
@@ -222,7 +235,6 @@ int Engine::quiescence(Board& board, int alpha, int beta){
     return alpha;
 }
 
-
 Move Engine::find_best_move(Board& board, int maxDepth){
     currentgeneration++;
     nullMoveCuts = 0;
@@ -297,12 +309,115 @@ Move Engine::find_best_move(Board& board, int maxDepth){
         hasPreviousBest = true;
         bestMove = bestMoveThisIteration;
 
+        int displayEval = board.is_white_turn() ? bestScore : -bestScore;
+
         std::cout << "Depth " << depth
                   << " | nodes: "     << nodes
                   << " | qnodes: "    << qnodes
                   << " | nullCuts: "  << nullMoveCuts
-                  << " | eval: "      << bestScore << "\n";
+                  << " | eval: "      << displayEval << "\n";
     }
 
+    return bestMove;
+}
+
+Move Engine::find_best_move_timed(Board& board, int limitMs){
+    searchStart  = Clock::now();
+    timeLimitMs  = limitMs;
+    outOfTime    = false;
+ 
+    currentgeneration++;
+    nullMoveCuts = 0;
+    qnodes=0;
+   
+    BookMove bm;
+    if(openingBook.probe(board.get_hash(), bm)){
+        Move m;
+        m.fromRow = bm.fromRow; 
+        m.fromCol = bm.fromCol;
+        m.toRow = bm.toRow;
+        m.toCol   = bm.toCol;
+        return m;
+    }
+ 
+    std::vector<Move> moves = board.generate_moves();
+    if(moves.empty()) return Move{};
+ 
+    Move bestMove = moves[0];
+    Move bestMoveThisIteration = moves[0];
+ 
+    for(int depth = 1; depth <= 100; depth++){ 
+        nodes = 0;
+ 
+        if(check_time()) break;
+ 
+        
+        for(int c = 0; c < 2; c++)
+            for(int f = 0; f < 64; f++)
+                for(int t = 0; t < 64; t++)
+                    historyTable[c][f][t] /= 2;
+ 
+        currentgeneration++;
+ 
+      
+        if(hasPreviousBest){
+            for(int i = 0; i < (int)moves.size(); i++){
+                if(sameMove(moves[i], bestMoveOverall)){
+                    std::swap(moves[0], moves[i]);
+                    break;
+                }
+            }
+        }
+ 
+        int sortStart = hasPreviousBest ? 1 : 0;
+        std::sort(moves.begin() + sortStart, moves.end(), [&](const Move& a, const Move& b){
+            int ta = abs(board.get_piece(a.toRow, a.toCol));
+            int aa = abs(board.get_piece(a.fromRow, a.fromCol));
+            int tb = abs(board.get_piece(b.toRow, b.toCol));
+            int ab = abs(board.get_piece(b.fromRow, b.fromCol));
+            int sA = ta ? 10000 + pieceValue[ta]*10 - pieceValue[aa] : 0;
+            int sB = tb ? 10000 + pieceValue[tb]*10 - pieceValue[ab] : 0;
+            return sA > sB;
+        });
+ 
+        int bestScore = -999999;
+        outOfTime = false;
+ 
+        for(Move& m : moves){
+            Undo u;
+            board.make_move(m, u);
+            int score = -alphabeta(board, depth - 1, -999999, 999999, 0, false);
+            board.undo_move(m, u);
+ 
+            if(outOfTime) break; 
+ 
+            if(score > bestScore){
+                bestScore = score;
+                bestMoveThisIteration = m;
+            }
+        }
+ 
+        if(!outOfTime){
+            bestMoveOverall = bestMoveThisIteration;
+            bestMove        = bestMoveThisIteration;
+            hasPreviousBest = true;
+ 
+           
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - searchStart).count();
+            int displayEval = board.is_white_turn() ? bestScore : -bestScore;
+ 
+            std::cout << "info depth " << depth
+                      << " score cp "  << displayEval
+                      << " nodes "     << nodes
+                      << " time "      << elapsed
+                      << " nps "       << (elapsed > 0 ? nodes * 1000 / elapsed : 0)
+                      << "\n";
+            std::cout.flush();
+        }
+ 
+        if(check_time()) break;
+    }
+ 
+    timeLimitMs = -1;
     return bestMove;
 }
