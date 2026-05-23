@@ -51,6 +51,11 @@ struct Undo{
     bool oldBKRookMoved;
     bool oldBQRookMoved;
 
+    int oldWhiteKingRow;
+    int oldWhiteKingCol;
+    int oldBlackKingRow;
+    int oldBlackKingCol;
+
     int oldFiftyMove;
 
     uint64_t oldHash;
@@ -74,6 +79,11 @@ private:
 
     int enPassantRow = -1;
     int enPassantCol = -1;
+
+    int whiteKingRow = 7;
+    int whiteKingCol = 4;
+    int blackKingRow = 0;
+    int blackKingCol = 4;
 
     int fiftymoveClock=0;
 
@@ -130,5 +140,10 @@ public:
     void make_null_move(Undo& u);
 
     void undo_null_move(Undo& u);
+
+    int get_smallest_attacker(int row, int col, bool byWhite, int& fromRow, int& fromCol);
+    
+    int see(int toRow, int toCol, int target, int fromRow, int fromCol);
+
 };
 

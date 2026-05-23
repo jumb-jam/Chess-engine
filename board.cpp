@@ -185,6 +185,13 @@ void Board::load_fen(const std::string& fen){
         }
     }
 
+    for(int r = 0; r < 8; r++){
+        for(int c = 0; c < 8; c++){
+            if(board[r][c] ==  6){ whiteKingRow = r; whiteKingCol = c; }
+            if(board[r][c] == -6){ blackKingRow = r; blackKingCol = c; }
+        }
+    }
+
     whiteTurn = (side == "w");
 
     whiteKingMoved            = true;
@@ -253,10 +260,9 @@ bool Board::is_fifty_move_draw(){
 bool Board::is_threefold_repetition(){
     int count=0;
 
-    for(uint64_t h : repetitionHistory){
-        if(h==zobristKey){
-            count++;
-        }
+    int start = std::max(0, (int)repetitionHistory.size() - fiftymoveClock - 1);
+    for(int i = start; i < (int)repetitionHistory.size(); i++){
+        if(repetitionHistory[i] == zobristKey) count++;
     }
 
     return count>=3;
@@ -290,7 +296,7 @@ bool Board::make_move(Move& m, Undo& u){
     m.isCastle = false;
     m.isEnPassant = false;
     m.isPromotion = false;
-    m.promotionPiece = 0;
+    //m.promotionPiece = 0;
 
     int piece = get_piece(m.fromRow,m.fromCol);
     m.capturedPiece = get_piece(m.toRow, m.toCol);
@@ -313,6 +319,11 @@ bool Board::make_move(Move& m, Undo& u){
 
     u.oldBKRookMoved=blackKingsideRookMoved;
     u.oldBQRookMoved=blackQueensideRookMoved;
+
+    u.oldWhiteKingRow = whiteKingRow;
+    u.oldWhiteKingCol = whiteKingCol;
+    u.oldBlackKingRow = blackKingRow;
+    u.oldBlackKingCol = blackKingCol;
 
     u.oldFiftyMove=fiftymoveClock;
 
@@ -402,7 +413,10 @@ bool Board::make_move(Move& m, Undo& u){
     }
     if(m.isPromotion){
 
-        int promoted=(piece>0)? m.promotionPiece:-m.promotionPiece;
+        if(m.promotionPiece == 0)
+            m.promotionPiece = 5;
+
+        int promoted=(piece>0)? abs(m.promotionPiece):-abs(m.promotionPiece);
         board[m.toRow][m.toCol]=promoted;
 
         zobristKey^= Zobrist::pieces[pieceIndex(promoted)][toSq];
@@ -449,16 +463,19 @@ bool Board::make_move(Move& m, Undo& u){
             }
         }
     }
-
     
    
     board[m.fromRow][m.fromCol] = 0;
 
     if(piece == 6){
         whiteKingMoved = true;
+        whiteKingRow = m.toRow; 
+        whiteKingCol = m.toCol;
     }
     if(piece == -6){
         blackKingMoved = true;
+        blackKingRow = m.toRow; 
+        blackKingCol = m.toCol;
     }
     if(piece == 4 && m.fromRow == 7 && m.fromCol == 0){
         whiteQueensideRookMoved = true;
@@ -855,25 +872,15 @@ bool Board::is_square_attacked(int row, int col, bool byWhite){
 }
 
 bool Board::is_in_check(bool whiteKing){
-    for(int row = 0; row < 8; row++){
-        for(int col = 0; col < 8; col++){
-            int piece = get_piece(row, col);
-
-            if(whiteKing && piece == 6){
-                return is_square_attacked(row,col,false);
-            }
-
-            if(!whiteKing && piece == -6){
-                return is_square_attacked(row,col,true);
-            }
-        }
-    }
-
-    return false;
+    if(whiteKing)
+        return is_square_attacked(whiteKingRow, whiteKingCol, false);
+    else
+        return is_square_attacked(blackKingRow, blackKingCol, true);
 }
 
 std::vector<Move> Board::generate_moves(){
     std::vector<Move> legalMoves;
+    legalMoves.reserve(64);
 
     for(int row=0;row<8;row++){
         for(int col=0;col<8;col++){
@@ -894,40 +901,27 @@ std::vector<Move> Board::generate_moves(){
             switch(abs(piece)){
 
                 case 1:{ // pawn
-                    int dir=(piece>0)?-1:1;
+                    int dir = (piece > 0) ? -1 : 1;
 
-                    Move m1{
-                        row,col,
-                        row+dir,col
-                    };
+                    int r1 = row + dir;
+                    if(in_bounds(r1, col) && get_piece(r1, col) == 0){
+                        moves.push_back({row, col, r1, col});
+                    }
 
-                    if(in_bounds(m1.toRow,m1.toCol) && is_valid_move(m1))
-                        moves.push_back(m1);
+                    int r2 = row + 2*dir;
+                    int startRow = (piece > 0) ? 6 : 1;
+                    if(row == startRow && get_piece(r1, col) == 0 && get_piece(r2, col) == 0){
+                        moves.push_back({row, col, r2, col});
+                    }
 
-                    Move m2{
-                        row,col,
-                        row+2*dir,col
-                    };
-
-                    if(in_bounds(m2.toRow,m2.toCol) && is_valid_move(m2))
-                        moves.push_back(m2);
-
-                    Move c1{
-                        row,col,
-                        row+dir,col-1
-                    };
-
-                    if(in_bounds(c1.toRow,c1.toCol) && is_valid_move(c1))
-                        moves.push_back(c1);
-
-                    Move c2{
-                        row,col,
-                        row+dir,col+1
-                    };
-
-                    if(in_bounds(c2.toRow,c2.toCol) && is_valid_move(c2))
-                        moves.push_back(c2);
-
+                    for(int dc : {-1, 1}){
+                        int c = col + dc;
+                        if(!in_bounds(r1, c)) continue;
+                        int target = get_piece(r1, c);
+                        bool isEP = (r1 == enPassantRow && c == enPassantCol);
+                        if((target != 0 && !same_color(piece, target)) || isEP)
+                            moves.push_back({row, col, r1, c});
+                    }
                     break;
                 }
 
@@ -945,16 +939,10 @@ std::vector<Move> Board::generate_moves(){
                     };
 
                     for(auto& o:offsets){
-
-                        Move m{
-                            row,
-                            col,
-                            row+o[0],
-                            col+o[1]
-                        };
-
-                        if(in_bounds(m.toRow,m.toCol) && is_valid_move(m))
-                            moves.push_back(m);
+                        int r = row + o[0], c = col + o[1];
+                        if(in_bounds(r, c) && !same_color(piece, get_piece(r, c))){
+                            moves.push_back({row, col, r, c});
+                        }
                     }
 
                     break;
@@ -965,18 +953,14 @@ std::vector<Move> Board::generate_moves(){
                     for(int dr=-1;dr<=1;dr++){
                         for(int dc=-1;dc<=1;dc++){
 
-                            if(dr==0 && dc==0)
+                            if(dr==0 && dc==0){
                                 continue;
+                            }
 
-                            Move m{
-                                row,
-                                col,
-                                row+dr,
-                                col+dc
-                            };
-
-                            if(in_bounds(m.toRow,m.toCol) && is_valid_move(m))
-                                moves.push_back(m);
+                            int r = row + dr, c = col + dc;
+                            if(in_bounds(r, c) && !same_color(piece, get_piece(r, c))){
+                                moves.push_back({row, col, r, c});
+                            }
                         }
                     }
 
@@ -1001,47 +985,41 @@ std::vector<Move> Board::generate_moves(){
                 case 4:
                 case 5:{ // bishop/rook/queen
 
-                    std::vector<std::pair<int,int>>
-                    dirs;
+                    static const int bishopDirs[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
+                    static const int rookDirs[4][2]   = {{-1,0},{1,0},{0,-1},{0,1}};
 
-                    if(abs(piece)==2 ||
-                    abs(piece)==5){
+                    int numDirs = 0;
+                    const int (*dirs)[2] = nullptr;
 
-                        dirs.push_back({-1,-1});
-                        dirs.push_back({-1,1});
-                        dirs.push_back({1,-1});
-                        dirs.push_back({1,1});
+                    static const int queenDirs[8][2] = {
+                        {-1,-1},{-1,1},{1,-1},{1,1},
+                        {-1,0},{1,0},{0,-1},{0,1}
+                    };
+
+                    if(abs(piece) == 2){
+                        dirs = bishopDirs; numDirs = 4;
+                    } else if(abs(piece) == 4){
+                        dirs = rookDirs;   numDirs = 4;
+                    } else {
+                        dirs = queenDirs;  numDirs = 8;
                     }
 
-                    if(abs(piece)==4 ||
-                    abs(piece)==5){
+                    for(int d = 0; d < numDirs; d++){
+                        int r = row + dirs[d][0];
+                        int c = col + dirs[d][1];
 
-                        dirs.push_back({-1,0});
-                        dirs.push_back({1,0});
-                        dirs.push_back({0,-1});
-                        dirs.push_back({0,1});
-                    }
-
-                    for(auto& d:dirs){
-
-                        int r=row+d.first;
-                        int c=col+d.second;
-
-                        while(in_bounds(r,c)){
-                            int target = get_piece(r,c);
+                        while(in_bounds(r, c)){
+                            int target = get_piece(r, c);
                             if(target != 0){
-                                if(!same_color(piece, target)){
-                                    Move m={row, col, r, c};
-                                    m.capturedPiece = target;
-                                    moves.push_back(m);
-                                }
+                                if(!same_color(piece, target))
+                                    moves.push_back({row, col, r, c});
                                 break;
                             }
-                            moves.push_back(Move{row, col, r, c});
-                            r += d.first; c += d.second;
+                            moves.push_back({row, col, r, c});
+                            r += dirs[d][0];
+                            c += dirs[d][1];
                         }
                     }
-
                     break;
                 }
             }
@@ -1218,119 +1196,46 @@ int Board::get_pst_score(int piece,int row, int col){
 }
 
 int Board::count_piece_mobility(int row, int col){
-    int piece = get_piece(row,col);
+    int piece = get_piece(row, col);
+    int type  = abs(piece);
+    int count = 0;
 
-    if(piece==0)
-        return 0;
+    static const int bishopDirs[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
+    static const int rookDirs[4][2]   = {{-1,0},{1,0},{0,-1},{0,1}};
 
-    int mobility=0;
-
-    switch(abs(piece)){
-
-        case 3:{ // knight
-
-            int offsets[8][2]={
-                {-2,-1},
-                {-2,1},
-                {-1,-2},
-                {-1,2},
-                {1,-2},
-                {1,2},
-                {2,-1},
-                {2,1}
-            };
-
-            for(auto& o:offsets){
-
-                int r=row+o[0];
-                int c=col+o[1];
-
-                if(in_bounds(r,c)){
-
-                    int target=get_piece(r,c);
-
-                    if(target==0 || !same_color(piece,target)){
-                        mobility++;
-                    }
-                }
+    if(type == 2 || type == 5){ // bishop/queen diagonal
+        for(auto& d : bishopDirs){
+            int r = row + d[0], c = col + d[1];
+            while(in_bounds(r, c)){
+                count++;
+                if(get_piece(r, c) != 0) break;
+                r += d[0]; c += d[1];
             }
-
-            break;
         }
-
-        case 2:
-        case 4:
-        case 5:{
-
-            std::vector<std::pair<int,int>> dirs;
-
-            if(abs(piece)==2 || abs(piece)==5){
-                dirs.push_back({-1,-1});
-                dirs.push_back({-1,1});
-                dirs.push_back({1,-1});
-                dirs.push_back({1,1});
+    }
+    if(type == 4 || type == 5){ // rook/queen straight
+        for(auto& d : rookDirs){
+            int r = row + d[0], c = col + d[1];
+            while(in_bounds(r, c)){
+                count++;
+                if(get_piece(r, c) != 0) break;
+                r += d[0]; c += d[1];
             }
-
-            if(abs(piece)==4 || abs(piece)==5){
-                dirs.push_back({-1,0});
-                dirs.push_back({1,0});
-                dirs.push_back({0,-1});
-                dirs.push_back({0,1});
-            }
-
-            for(auto& d:dirs){
-                int r= row+d.first;
-
-                int c= col+d.second;
-
-                while(in_bounds(r,c)){
-
-                    int target=get_piece(r,c);
-
-                    if(target==0){
-                        mobility++;
-                    }
-                    else{
-                        if(!same_color(piece,target)){
-                            mobility++;
-                        }
-                        break;
-                    }
-
-                    r+=d.first;
-                    c+=d.second;
-                }
-            }
-            break;
         }
-
-        case 6:{ // king
-            for(int dr=-1;dr<=1; dr++){
-                for(int dc=-1;dc<=1;dc++){
-
-                    if(dr==0 && dc==0){
-                        continue;
-                    }
-
-                    int r=row+dr;
-                    int c=col+dc;
-
-                    if(in_bounds(r,c)){
-                        int target=get_piece(r,c);
-
-                        if(target==0 || !same_color(piece,target)){
-                            mobility++;
-                        }
-                    }
-                }
-            }
-
-            break;
+    }
+    if(type == 3){ // knight
+        static const int offsets[8][2] = {
+            {-2,-1},{-2,1},{-1,-2},{-1,2},
+            {1,-2},{1,2},{2,-1},{2,1}
+        };
+        for(auto& o : offsets){
+            int r = row + o[0], c = col + o[1];
+            if(in_bounds(r, c) && !same_color(piece, get_piece(r, c)))
+                count++;
         }
-
     }
 
-    return mobility;
+    return count;
 }
 
 int Board::evaluate_position(){
@@ -1405,12 +1310,9 @@ int Board::evaluate_position(){
             }
 
            
-            int mobility     = count_piece_mobility(row, col);
             int mobilityBonus = 0;
-            switch(type){
-                case 2: case 3: mobilityBonus = mobility * 4; break;
-                case 4:         mobilityBonus = mobility * 2; break;
-                case 5:         mobilityBonus = mobility * 1; break;
+            if(type == 3 || type == 2){
+                mobilityBonus = count_piece_mobility(row, col) * 4;
             }
 
            
@@ -1595,6 +1497,11 @@ void Board::undo_move(const Move& m, Undo& u){
     blackKingsideRookMoved = u.oldBKRookMoved;
     blackQueensideRookMoved = u.oldBQRookMoved;
 
+    whiteKingRow = u.oldWhiteKingRow;
+    whiteKingCol = u.oldWhiteKingCol;
+    blackKingRow = u.oldBlackKingRow;
+    blackKingCol = u.oldBlackKingCol;
+
     fiftymoveClock = u.oldFiftyMove;
 
     enPassantRow = u.oldEnPassantRow;
@@ -1628,3 +1535,134 @@ void Board::undo_null_move(Undo& u) {
     zobristKey = u.oldHash;
 }
 
+int Board::get_smallest_attacker(int row, int col, bool byWhite, int& fromRow, int& fromCol){
+    
+    int pawnDir = byWhite ? 1 : -1; // direction pawns come FROM
+    int pawn    = byWhite ? 1 : -1;
+    
+    for(int dc = -1; dc <= 1; dc += 2){
+        int r = row + pawnDir;
+        int c = col + dc;
+        if(in_bounds(r, c) && get_piece(r, c) == pawn){
+            fromRow = r; fromCol = c;
+            return pieceValue[1];
+        }
+    }
+
+    // knights
+    int knightOffsets[8][2] = {
+        {-2,-1},{-2,1},{-1,-2},{-1,2},
+        {1,-2},{1,2},{2,-1},{2,1}
+    };
+    int knight = byWhite ? 3 : -3;
+    for(auto& o : knightOffsets){
+        int r = row + o[0], c = col + o[1];
+        if(in_bounds(r,c) && get_piece(r,c) == knight){
+            fromRow = r; fromCol = c;
+            return pieceValue[3];
+        }
+    }
+
+    // bishops
+    int bishopDirs[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
+    int bishop = byWhite ? 2 : -2;
+    for(auto& d : bishopDirs){
+        int r = row + d[0], c = col + d[1];
+        while(in_bounds(r,c)){
+            int p = get_piece(r,c);
+            if(p != 0){
+                if(p == bishop){ fromRow = r; fromCol = c; return pieceValue[2]; }
+                break;
+            }
+            r += d[0]; c += d[1];
+        }
+    }
+
+    // rooks
+    int rookDirs[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+    int rook = byWhite ? 4 : -4;
+    for(auto& d : rookDirs){
+        int r = row + d[0], c = col + d[1];
+        while(in_bounds(r,c)){
+            int p = get_piece(r,c);
+            if(p != 0){
+                if(p == rook){ fromRow = r; fromCol = c; return pieceValue[4]; }
+                break;
+            }
+            r += d[0]; c += d[1];
+        }
+    }
+
+    // queen (bishops + rooks combined)
+    int queen = byWhite ? 5 : -5;
+    for(auto& d : bishopDirs){
+        int r = row + d[0], c = col + d[1];
+        while(in_bounds(r,c)){
+            int p = get_piece(r,c);
+            if(p != 0){
+                if(p == queen){ fromRow = r; fromCol = c; return pieceValue[5]; }
+                break;
+            }
+            r += d[0]; c += d[1];
+        }
+    }
+    for(auto& d : rookDirs){
+        int r = row + d[0], c = col + d[1];
+        while(in_bounds(r,c)){
+            int p = get_piece(r,c);
+            if(p != 0){
+                if(p == queen){ fromRow = r; fromCol = c; return pieceValue[5]; }
+                break;
+            }
+            r += d[0]; c += d[1];
+        }
+    }
+
+    // king
+    int king = byWhite ? 6 : -6;
+    for(int dr = -1; dr <= 1; dr++){
+        for(int dc = -1; dc <= 1; dc++){
+            if(dr == 0 && dc == 0) continue;
+            int r = row + dr, c = col + dc;
+            if(in_bounds(r,c) && get_piece(r,c) == king){
+                fromRow = r; fromCol = c;
+                return pieceValue[6];
+            }
+        }
+    }
+
+    return -1; // no attacker found
+}
+
+int Board::see(int toRow, int toCol, int target, int fromRow, int fromCol){
+    
+    int value = 0;
+    int attacker = abs(get_piece(fromRow, fromCol));
+    
+    // simulate the capture
+    int captured = board[toRow][toCol];
+    board[toRow][toCol] = board[fromRow][fromCol];
+    board[fromRow][fromCol] = 0;
+
+    // find the least valuable opponent attacker
+    int nextFromRow, nextFromCol;
+    bool byWhite = (captured > 0); // opponent of who just captured
+    
+    int nextAttackerVal = get_smallest_attacker(
+        toRow, toCol, byWhite, nextFromRow, nextFromCol);
+
+    if(nextAttackerVal >= 0){
+        // opponent can recapture — recurse
+        value = std::max(0, pieceValue[abs(captured)] - 
+                see(toRow, toCol, abs(captured), nextFromRow, nextFromCol));
+    } else {
+        // no recapture available
+        value = pieceValue[abs(captured)];
+    }
+
+    // restore the board
+    board[fromRow][fromCol] = board[toRow][toCol];
+    board[toRow][toCol] = captured;
+
+    return value;
+}

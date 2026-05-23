@@ -81,6 +81,8 @@ void UCI::handle_position(const std::string& line){
         Undo u;
         board.make_move(m, u);
     }
+
+    engine.hasPreviousBest=false;
 }
 
 void UCI::handle_go(const std::string& line){
@@ -129,6 +131,20 @@ void UCI::handle_go(const std::string& line){
         best = engine.find_best_move(board, depth);
     }
 
+    std::vector<Move> legal = board.generate_moves();
+    bool isLegal = false;
+    for(Move& m : legal){
+        if(m.fromRow == best.fromRow && m.fromCol == best.fromCol &&
+        m.toRow   == best.toRow   && m.toCol   == best.toCol){
+            isLegal = true;
+            break;
+        }
+    }
+
+    if(!isLegal){
+        std::cout << "info string ILLEGAL MOVE DETECTED, playing first legal move\n";
+        best = legal.empty() ? Move{} : legal[0];
+    }
     
     std::string moveStr;
     moveStr += (char)('a' + best.fromCol);

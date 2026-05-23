@@ -109,13 +109,19 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, boo
         int attacker = abs(board.get_piece(m.fromRow, m.fromCol));
 
         if(target != 0){
-            m.score = 100000 + pieceValue[target] * 10 - pieceValue[attacker];
+            int seeScore = board.see(m.toRow, m.toCol, target, m.fromRow, m.fromCol);
+            if(seeScore > 0)
+                m.score = 100000 + seeScore;  
+            else if(seeScore == 0)
+                m.score = 90000;              
+            else
+                m.score = seeScore;           
         }
         else if(sameMove(m, killerMoves[ply][0])){
-            m.score = 90000;
+            m.score = 95000;  
         }
         else if(sameMove(m, killerMoves[ply][1])){
-            m.score = 89000;
+            m.score = 94000;
         }
         else{
             int color = board.is_white_turn() ? 0 : 1;
@@ -210,7 +216,6 @@ int Engine::quiescence(Board& board, int alpha, int beta){
     if(!board.is_white_turn()) standPat = -standPat;
 
     if(standPat >= beta) return beta;
-    if(standPat < alpha - 900)  return alpha;   
 
     alpha = std::max(alpha, standPat);
 
@@ -221,6 +226,12 @@ int Engine::quiescence(Board& board, int alpha, int beta){
     });
 
     for(Move& m : captures){
+        bool isEP = (abs(board.get_piece(m.fromRow, m.fromCol)) == 1 &&m.toCol != m.fromCol && board.get_piece(m.toRow, m.toCol) == 0);
+
+        if(!isEP){
+            int seeScore = board.see(m.toRow, m.toCol,abs(board.get_piece(m.toRow, m.toCol)),m.fromRow, m.fromCol);
+            if(seeScore < 0) continue;
+        }
         Undo u;
         board.make_move(m, u);
 
@@ -404,7 +415,7 @@ Move Engine::find_best_move_timed(Board& board, int limitMs){
  
            
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - searchStart).count();
-            int displayEval = board.is_white_turn() ? bestScore : -bestScore;
+            int displayEval = bestScore;    
  
             std::cout << "info depth " << depth
                       << " score cp "  << displayEval
