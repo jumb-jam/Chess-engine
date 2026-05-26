@@ -1,6 +1,9 @@
 #include <iostream>
 #include "engine.h"
 #include <algorithm>
+#include <cstring>
+
+static TTEntry g_tt[1 << 22];
 
 bool Engine::check_time(){
     if(timeLimitMs < 0) return false;
@@ -30,8 +33,10 @@ Engine::Engine(){
         killerMoves[i][0] = Move{};
         killerMoves[i][1] = Move{};
     }
-}
 
+    tt = g_tt;
+    std::memset(tt, 0, sizeof(TTEntry) * (1 << 22));
+}
 
 int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, bool isNullMove){
     if(nodes % 2048 == 0 && check_time()){
@@ -49,19 +54,19 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, boo
     int betaOrig  = beta;
 
     
-    auto it = tt.find(key);
-    if(it != tt.end()){
-        TTEntry& entry = it->second;
-        if(entry.depth >= depth && entry.generation == currentgeneration){
-            if(entry.flag == EXACT)
-                return entry.score;
-            if(entry.flag == LOWERBOUND)
-                alpha = std::max(alpha, entry.score);
-            if(entry.flag == UPPERBOUND)
-                beta  = std::min(beta,  entry.score);
-            if(alpha >= beta)
-                return entry.score;
-        }
+    int ttIdx = key % TT_SIZE;
+    TTEntry& ttEntry = tt[ttIdx];
+    bool ttHit = (ttEntry.key == key);
+
+    if(ttHit && ttEntry.depth >= depth && ttEntry.generation == currentgeneration){
+        if(ttEntry.flag == EXACT)
+            return ttEntry.score;
+        if(ttEntry.flag == LOWERBOUND)
+            alpha = std::max(alpha, ttEntry.score);
+        if(ttEntry.flag == UPPERBOUND)
+            beta  = std::min(beta,  ttEntry.score);
+        if(alpha >= beta)
+            return ttEntry.score;
     }
 
     
@@ -100,7 +105,7 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, boo
     for(int i = 0; i < (int)moves.size(); i++){
         Move& m = moves[i];
         
-        if(it != tt.end() && sameMove(m, it->second.bestMove)){
+        if(ttHit && sameMove(m, ttEntry.bestMove)){
             m.score = 1000000;
             continue;
         }
@@ -116,6 +121,9 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, boo
                 m.score = 90000;              
             else
                 m.score = seeScore;           
+        }
+        else if(m.isPromotion){
+            m.score = 88000;
         }
         else if(sameMove(m, killerMoves[ply][0])){
             m.score = 95000;  
@@ -190,22 +198,26 @@ int Engine::alphabeta(Board& board, int depth, int alpha, int beta, int ply, boo
                 int from = m.fromRow * 8 + m.fromCol;
                 int to  = m.toRow * 8 + m.toCol;
                 historyTable[color][from][to] += depth * depth;
+                if(historyTable[color][from][to] > 65000) historyTable[color][from][to] = 65000;
             }
             break;
         }
     }
 
-    TTEntry entry;
-    entry.depth = depth;
-    entry.score = bestScore;
-    entry.bestMove = bestMove;
-    entry.generation = currentgeneration;
+    TTEntry& store = tt[ttIdx];
+    
+    if(!ttHit || depth >= store.depth){
+        store.key=key;
+        store.depth=depth;
+        store.score=bestScore;
+        store.bestMove=bestMove;
+        store.generation = currentgeneration;
 
-    if(bestScore <= alphaOrig) entry.flag = UPPERBOUND;
-    else if(bestScore >= betaOrig) entry.flag = LOWERBOUND;
-    else entry.flag = EXACT;
+        if(bestScore <= alphaOrig) store.flag = UPPERBOUND;
+        else if(bestScore >= betaOrig) store.flag = LOWERBOUND;
+        else store.flag = EXACT;
+    }
 
-    tt[key] = entry;
     return bestScore;
 }
 
@@ -249,7 +261,7 @@ int Engine::quiescence(Board& board, int alpha, int beta){
 Move Engine::find_best_move(Board& board, int maxDepth){
     currentgeneration++;
     nullMoveCuts = 0;
-    qnodes = 0;
+    
    
     BookMove bm;
     if(openingBook.probe(board.get_hash(), bm)){
@@ -266,8 +278,11 @@ Move Engine::find_best_move(Board& board, int maxDepth){
     Move bestMove = moves[0];
     Move bestMoveThisIteration = moves[0];
 
+
+    auto iterStart = Clock::now();
     for(int depth = 1; depth <= maxDepth; depth++){
         nodes = 0;
+        qnodes=0;
         for(int c = 0; c < 2; c++)
             for(int f = 0; f < 64; f++)
                 for(int t = 0; t < 64; t++)
@@ -322,11 +337,15 @@ Move Engine::find_best_move(Board& board, int maxDepth){
 
         int displayEval = board.is_white_turn() ? bestScore : -bestScore;
 
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - iterStart).count();
+
         std::cout << "Depth " << depth
-                  << " | nodes: "     << nodes
-                  << " | qnodes: "    << qnodes
-                  << " | nullCuts: "  << nullMoveCuts
-                  << " | eval: "      << displayEval << "\n";
+                << " | nodes: "    << nodes
+                << " | qnodes: "   << qnodes
+                << " | eval: "     << displayEval
+                << " | time: "     << elapsed << "ms"
+                << " | nps: "      << (elapsed > 0 ? (nodes + qnodes) * 1000 / elapsed : 0)
+                << "\n";
     }
 
     return bestMove;

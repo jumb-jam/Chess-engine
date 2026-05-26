@@ -21,7 +21,7 @@ int main(int argc, char* argv[]){
 
         for(int i = 0; i < 50; i++){
             board.print_board();
-            Move m = engine.find_best_move(board, 7);
+            Move m = engine.find_best_move(board, 10);
             board.make_move(m, u);
         }
     }

@@ -129,9 +129,6 @@ public:
 
     std::vector<Move> generate_captures();
 
-    int get_pst_score(int piece, int row, int col);
-
-    int count_piece_mobility(int row, int col);
 
     int evaluate_position();
 

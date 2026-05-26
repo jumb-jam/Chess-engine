@@ -1,9 +1,9 @@
 #pragma once
 
-extern const int pawnTable[8][8];
-extern const int knightTable[8][8];
-extern const int bishopTable[8][8];
-extern const int rookTable[8][8];
-extern const int queenTable[8][8];
-extern const int kingTable[8][8];
-extern const int kingEndgameTable[8][8];
+extern const int mgValue[7];
+extern const int egValue[7];
+ 
+extern const int phaseWeight[7];
+ 
+extern const int mgPST[7][64];
+extern const int egPST[7][64];

@@ -1044,70 +1044,77 @@ std::vector<Move> Board::generate_moves(){
 
 std::vector<Move> Board::generate_captures(){
     std::vector<Move> legalMoves;
+    legalMoves.reserve(32);
+
+    static const int bishopDirs[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
+    static const int rookDirs[4][2]   = {{-1,0},{1,0},{0,-1},{0,1}};
+    static const int queenDirs[8][2]  = {
+        {-1,-1},{-1,1},{1,-1},{1,1},
+        {-1,0},{1,0},{0,-1},{0,1}
+    };
+    static const int knightOffsets[8][2] = {
+        {-2,-1},{-2,1},{-1,-2},{-1,2},
+        {1,-2},{1,2},{2,-1},{2,1}
+    };
 
     for(int row = 0; row < 8; row++){
         for(int col = 0; col < 8; col++){
 
             int piece = get_piece(row, col);
-
             if(piece == 0) continue;
             if(whiteTurn  && piece < 0) continue;
             if(!whiteTurn && piece > 0) continue;
 
+            int type = abs(piece);
             std::vector<Move> moves;
 
-            switch(abs(piece)){
+            switch(type){
 
-                case 1:{ // pawn — only diagonal captures + en passant
+                case 1:{ 
                     int dir = (piece > 0) ? -1 : 1;
+                    int r1  = row + dir;
 
-                    // left capture
-                    Move c1{ row, col, row + dir, col - 1 };
-                    if(in_bounds(c1.toRow, c1.toCol)){
-                        int target = get_piece(c1.toRow, c1.toCol);
-                        bool isEnPassant = (c1.toRow == enPassantRow && c1.toCol == enPassantCol);
-                        if((target != 0 && !same_color(piece, target)) || isEnPassant)
-                            if(is_valid_move(c1)) moves.push_back(c1);
-                    }
+                    for(int dc : {-1, 1}){
+                        int c = col + dc;
+                        if(!in_bounds(r1, c)) continue;
 
-                    // right capture
-                    Move c2{ row, col, row + dir, col + 1 };
-                    if(in_bounds(c2.toRow, c2.toCol)){
-                        int target = get_piece(c2.toRow, c2.toCol);
-                        bool isEnPassant = (c2.toRow == enPassantRow && c2.toCol == enPassantCol);
-                        if((target != 0 && !same_color(piece, target)) || isEnPassant)
-                            if(is_valid_move(c2)) moves.push_back(c2);
-                    }
+                        int target  = get_piece(r1, c);
+                        bool isEP   = (r1 == enPassantRow && c == enPassantCol);
 
-                    break;
-                }
-
-                case 3:{ // knight
-                    int offsets[8][2] = {
-                        {-2,-1},{-2,1},{-1,-2},{-1,2},
-                        {1,-2},{1,2},{2,-1},{2,1}
-                    };
-
-                    for(auto& o : offsets){
-                        Move m{ row, col, row + o[0], col + o[1] };
-                        if(in_bounds(m.toRow, m.toCol)){
-                            int target = get_piece(m.toRow, m.toCol);
-                            if(target != 0 && !same_color(piece, target))
-                                if(is_valid_move(m)) moves.push_back(m);
+                        if((target != 0 && !same_color(piece, target)) || isEP){
+                            Move m{row, col, r1, c};
+                            m.capturedPiece = isEP ? (piece > 0 ? -1 : 1) : target;
+                            moves.push_back(m);
                         }
                     }
                     break;
                 }
 
-                case 6:{ // king — only squares with enemy pieces (no castling)
+                case 3:{ 
+                    for(auto& o : knightOffsets){
+                        int r = row + o[0], c = col + o[1];
+                        if(!in_bounds(r, c)) continue;
+                        int target = get_piece(r, c);
+                        if(target != 0 && !same_color(piece, target)){
+                            Move m{row, col, r, c};
+                            m.capturedPiece = target;
+                            moves.push_back(m);
+                        }
+                    }
+                    break;
+                }
+
+                case 6:{ 
                     for(int dr = -1; dr <= 1; dr++){
                         for(int dc = -1; dc <= 1; dc++){
                             if(dr == 0 && dc == 0) continue;
-                            Move m{ row, col, row + dr, col + dc };
-                            if(in_bounds(m.toRow, m.toCol)){
-                                int target = get_piece(m.toRow, m.toCol);
-                                if(target != 0 && !same_color(piece, target))
-                                    if(is_valid_move(m)) moves.push_back(m);
+                            int r = row + dr, c = col + dc;
+                            if(!in_bounds(r, c)) continue;
+                            int target = get_piece(r, c);
+                            if(target != 0 && !same_color(piece, target)){
+                                Move m{row, col, r, c};
+                                m.capturedPiece = target;
+                                moves.push_back(m);
                             }
                         }
                     }
@@ -1116,54 +1123,45 @@ std::vector<Move> Board::generate_captures(){
 
                 case 2:
                 case 4:
-                case 5:{ // bishop / rook / queen — slide until blocker, only add if enemy
-                    std::vector<std::pair<int,int>> dirs;
+                case 5:{ 
+                    const int (*dirs)[2];
+                    int numDirs;
 
-                    if(abs(piece) == 2 || abs(piece) == 5){
-                        dirs.push_back({-1,-1}); dirs.push_back({-1,1});
-                        dirs.push_back({ 1,-1}); dirs.push_back({ 1,1});
-                    }
-                    if(abs(piece) == 4 || abs(piece) == 5){
-                        dirs.push_back({-1,0}); dirs.push_back({1,0});
-                        dirs.push_back({0,-1}); dirs.push_back({0,1});
-                    }
+                    if(type == 2){ dirs = bishopDirs; numDirs = 4; }
+                    else if(type == 4){ dirs = rookDirs; numDirs = 4; }
+                    else { dirs = queenDirs; numDirs = 8; }
 
-                    for(auto& d : dirs){
-                        int r = row + d.first;
-                        int c = col + d.second;
+                    for(int d = 0; d < numDirs; d++){
+                        int r = row + dirs[d][0];
+                        int c = col + dirs[d][1];
 
                         while(in_bounds(r, c)){
                             int target = get_piece(r, c);
-
                             if(target != 0){
-                                // blocker found — add only if enemy
                                 if(!same_color(piece, target)){
-                                    Move m{ row, col, r, c };
-                                    if(is_valid_move(m)) moves.push_back(m);
+                                    Move m{row, col, r, c};
+                                    m.capturedPiece = target;
+                                    moves.push_back(m);
                                 }
-                                break; // stop sliding regardless
+                                break;
                             }
-
-                            r += d.first;
-                            c += d.second;
+                            r += dirs[d][0];
+                            c += dirs[d][1];
                         }
                     }
                     break;
                 }
             }
 
-            // same legality filter as generate_moves
             for(Move& m : moves){
-                bool movingWhite = get_piece(m.fromRow, m.fromCol) > 0;
-                
+                bool movingWhite = piece > 0;
                 Undo u;
-                make_move(m,u);
+                make_move(m, u);
 
-                if(!is_in_check(movingWhite)){
+                if(!is_in_check(movingWhite))
                     legalMoves.push_back(m);
-                }
 
-                undo_move(m,u);
+                undo_move(m, u);
             }
         }
     }
@@ -1171,267 +1169,229 @@ std::vector<Move> Board::generate_captures(){
     return legalMoves;
 }
 
-int Board::get_pst_score(int piece,int row, int col){
-
-    if(piece < 0){
-        row = 7-row;
-    }
-
-    switch(abs(piece)){
-        case 1:
-            return pawnTable[row][col];
-        case 2:
-            return bishopTable[row][col];
-        case 3:
-            return knightTable[row][col];
-        case 4:
-            return rookTable[row][col];
-        case 5:
-            return queenTable[row][col];
-        case 6:
-            return kingTable[row][col];
-    }
-
-    return 0;
-}
-
-int Board::count_piece_mobility(int row, int col){
-    int piece = get_piece(row, col);
-    int type  = abs(piece);
-    int count = 0;
-
-    static const int bishopDirs[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
-    static const int rookDirs[4][2]   = {{-1,0},{1,0},{0,-1},{0,1}};
-
-    if(type == 2 || type == 5){ // bishop/queen diagonal
-        for(auto& d : bishopDirs){
-            int r = row + d[0], c = col + d[1];
-            while(in_bounds(r, c)){
-                count++;
-                if(get_piece(r, c) != 0) break;
-                r += d[0]; c += d[1];
-            }
-        }
-    }
-    if(type == 4 || type == 5){ // rook/queen straight
-        for(auto& d : rookDirs){
-            int r = row + d[0], c = col + d[1];
-            while(in_bounds(r, c)){
-                count++;
-                if(get_piece(r, c) != 0) break;
-                r += d[0]; c += d[1];
-            }
-        }
-    }
-    if(type == 3){ // knight
-        static const int offsets[8][2] = {
-            {-2,-1},{-2,1},{-1,-2},{-1,2},
-            {1,-2},{1,2},{2,-1},{2,1}
-        };
-        for(auto& o : offsets){
-            int r = row + o[0], c = col + o[1];
-            if(in_bounds(r, c) && !same_color(piece, get_piece(r, c)))
-                count++;
-        }
-    }
-
-    return count;
-}
-
 int Board::evaluate_position(){
+    int mgScore = 0;
+    int egScore = 0;
+    int phase   = 0;
 
-    const int PHASE_LIMIT = 12; 
-    int phase = 0;
-    for(int r = 0; r < 8; r++){
-        for(int c = 0; c < 8; c++){
-            int p = abs(get_piece(r, c));
-            if(p == 2 || p == 3) phase += 1;
-            if(p == 4)           phase += 2;
-            if(p == 5)           phase += 4;
-        }
+
+    int whitePawns[8] = {0};  
+    int blackPawns[8] = {0};
+ 
+
+    int whitePawnRow[8];  
+    int blackPawnRow[8];  
+    for(int i = 0; i < 8; i++){
+        whitePawnRow[i] = 7; 
+        blackPawnRow[i] = 0;
     }
-    bool endgame = (phase <= PHASE_LIMIT);
-
-   
-    int whitePawns[8] = {};
-    int blackPawns[8] = {};
-  
-    int whitePawnRow[8]; 
-    int blackPawnRow[8];
-    for(int c = 0; c < 8; c++){
-        whitePawnRow[c] = 7; 
-        blackPawnRow[c] = 0;
-    }
-
-    for(int r = 0; r < 8; r++){
-        for(int c = 0; c < 8; c++){
-            int p = get_piece(r, c);
-            if(p ==  1){ whitePawns[c]++; whitePawnRow[c] = std::min(whitePawnRow[c], r); }
-            if(p == -1){ blackPawns[c]++; blackPawnRow[c] = std::max(blackPawnRow[c], r); }
-        }
-    }
-
-    int score = 0;
-
+ 
     int whiteBishops = 0;
     int blackBishops = 0;
-
+ 
+   
     for(int row = 0; row < 8; row++){
         for(int col = 0; col < 8; col++){
-            int piece = get_piece(row, col);
+ 
+            int piece = board[row][col];
             if(piece == 0) continue;
-
+ 
             bool isWhite = piece > 0;
             int  type    = abs(piece);
-
-          
-            int value = 0;
-            switch(type){
-                case 1: value = 100;   break;
-                case 2: value = 330;   break;
-                case 3: value = 320;   break;
-                case 4: value = 500;   break;
-                case 5: value = 900;   break;
-                case 6: value = 20000; break;
+ 
+ 
+            int sq = isWhite ? (row * 8 + col) : ((7 - row) * 8 + col);
+ 
+            int mg = mgValue[type] + mgPST[type][sq];
+            int eg = egValue[type] + egPST[type][sq];
+ 
+            if(isWhite){ mgScore += mg; egScore += eg; }
+            else        { mgScore -= mg; egScore -= eg; }
+ 
+            phase += phaseWeight[type];
+ 
+   
+            if(type == 1){
+                if(isWhite){
+                    whitePawns[col]++;
+                    if(row < whitePawnRow[col]) whitePawnRow[col] = row;
+                } else {
+                    blackPawns[col]++;
+                    if(row > blackPawnRow[col]) blackPawnRow[col] = row;
+                }
             }
-
-            
-            int pstRow = isWhite ? row : 7 - row;
-            int pst = 0;
-            switch(type){
-                case 1: pst = pawnTable[pstRow][col];   break;
-                case 2: pst = bishopTable[pstRow][col]; break;
-                case 3: pst = knightTable[pstRow][col]; break;
-                case 4: pst = rookTable[pstRow][col];   break;
-                case 5: pst = queenTable[pstRow][col];  break;
-                case 6: pst = endgame
-                            ? kingEndgameTable[pstRow][col]
-                            : kingTable[pstRow][col];   break;
-            }
-
-           
-            int mobilityBonus = 0;
-            if(type == 3 || type == 2){
-                mobilityBonus = count_piece_mobility(row, col) * 4;
-            }
-
-           
             if(type == 2){
                 if(isWhite) whiteBishops++;
                 else        blackBishops++;
             }
-
-            
-            int pawnBonus = 0;
-            if(type == 1){
-                
-                if(isWhite && whitePawns[col] > 1) pawnBonus -= 20;
-                if(!isWhite && blackPawns[col] > 1) pawnBonus -= 20;
-
-                
-                bool isolated = true;
-                if(col > 0 && (isWhite ? whitePawns[col-1] : blackPawns[col-1]) > 0) isolated = false;
-                if(col < 7 && (isWhite ? whitePawns[col+1] : blackPawns[col+1]) > 0) isolated = false;
-                if(isolated) pawnBonus -= 15;
-
-               
-                bool passed = true;
-                if(isWhite){
-                   
-                    for(int fc = std::max(0, col-1); fc <= std::min(7, col+1); fc++){
-                        
-                        if(blackPawns[fc] > 0 && blackPawnRow[fc] <= row){
-                            passed = false;
-                            break;
-                        }
-                    }
-                } else {
-                    for(int fc = std::max(0, col-1); fc <= std::min(7, col+1); fc++){
-                        if(whitePawns[fc] > 0 && whitePawnRow[fc] >= row){
-                            passed = false;
-                            break;
-                        }
-                    }
-                }
-                if(passed){
-                  
-                    int rank = isWhite ? (7 - row) : row; 
-                    const int passedBonus[8] = {0, 10, 20, 30, 50, 75, 100, 0};
-                    pawnBonus += passedBonus[rank];
-                }
-            }
-
-           
-            int rookBonus = 0;
-            if(type == 4){
-                bool noFriendlyPawn = (isWhite ? whitePawns[col] : blackPawns[col]) == 0;
-                bool noEnemyPawn    = (isWhite ? blackPawns[col] : whitePawns[col]) == 0;
-
-                if(noFriendlyPawn && noEnemyPawn) rookBonus += 20; 
-                else if(noFriendlyPawn)           rookBonus += 10; 
-            }
-
-            int total = value + pst + mobilityBonus + pawnBonus + rookBonus;
-            score += isWhite ? total : -total;
         }
     }
-
-   
-    if(whiteBishops >= 2) score += 30;
-    if(blackBishops >= 2) score -= 30;
-
-  
-    if(!endgame){
-        
-        int whiteKingRow = -1, whiteKingCol = -1;
-        int blackKingRow = -1, blackKingCol = -1;
-        for(int r = 0; r < 8; r++){
-            for(int c = 0; c < 8; c++){
-                if(get_piece(r,c) ==  6){ whiteKingRow = r; whiteKingCol = c; }
-                if(get_piece(r,c) == -6){ blackKingRow = r; blackKingCol = c; }
+ 
+    if(phase > 24) phase = 24;
+ 
+    int structureScore = 0;
+ 
+    // Passed pawn bonuses — scale by advancement rank
+    static const int passedMG[8] = {  0,  10,  20,  30,  50,  75, 100,   0 };
+    static const int passedEG[8] = {  0,  20,  40,  60,  90, 130, 180,   0 };
+ 
+    // Doubled pawn penalty
+    static const int doubledMG = -12;
+    static const int doubledEG = -20;
+ 
+    // Isolated pawn penalty
+    static const int isolatedMG = -15;
+    static const int isolatedEG = -20;
+ 
+    // Bishop pair bonus
+    static const int bishopPairMG = 25;
+    static const int bishopPairEG = 50;
+ 
+    // Rook on open/semi-open file bonus
+    static const int rookOpenMG   = 20;
+    static const int rookSemiMG   = 10;
+    static const int rookOpenEG   = 15;
+    static const int rookSemiEG   =  8;
+ 
+    // Pawn shield 
+    static const int shieldClose  = 10;  
+    static const int shieldFar    =  5;  
+    static const int openFilePenalty = 15; 
+ 
+    int mgStructure = 0;
+    int egStructure = 0;
+ 
+    for(int col = 0; col < 8; col++){
+ 
+        // ── White pawns ──
+        if(whitePawns[col] > 0){
+ 
+            // Doubled
+            if(whitePawns[col] > 1){
+                mgStructure += (whitePawns[col] - 1) * doubledMG;
+                egStructure += (whitePawns[col] - 1) * doubledEG;
+            }
+ 
+            // Isolated
+            bool leftEmpty  = (col == 0 || whitePawns[col-1] == 0);
+            bool rightEmpty = (col == 7 || whitePawns[col+1] == 0);
+            if(leftEmpty && rightEmpty){
+                mgStructure += isolatedMG;
+                egStructure += isolatedEG;
+            }
+ 
+            // Passed
+            bool passed = true;
+            int advRow = whitePawnRow[col]; 
+            for(int fc = std::max(0, col-1); fc <= std::min(7, col+1); fc++){
+                
+                if(blackPawns[fc] > 0 && blackPawnRow[fc] <= advRow){
+                    passed = false;
+                    break;
+                }
+            }
+            if(passed){
+                int rank = 7 - advRow; 
+                mgStructure += passedMG[rank];
+                egStructure += passedEG[rank];
             }
         }
+ 
+        if(blackPawns[col] > 0){
+ 
+            // Doubled
+            if(blackPawns[col] > 1){
+                mgStructure -= (blackPawns[col] - 1) * doubledMG;
+                egStructure -= (blackPawns[col] - 1) * doubledEG;
+            }
+ 
+            // Isolated
+            bool leftEmpty  = (col == 0 || blackPawns[col-1] == 0);
+            bool rightEmpty = (col == 7 || blackPawns[col+1] == 0);
+            if(leftEmpty && rightEmpty){
+                mgStructure -= isolatedMG;
+                egStructure -= isolatedEG;
+            }
+ 
+            // Passed
+            bool passed = true;
+            int advRow = blackPawnRow[col]; 
+            for(int fc = std::max(0, col-1); fc <= std::min(7, col+1); fc++){
+                if(whitePawns[fc] > 0 && whitePawnRow[fc] >= advRow){
+                    passed = false;
+                    break;
+                }
+            }
+            if(passed){
+                int rank = advRow; 
+                mgStructure -= passedMG[rank];
+                egStructure -= passedEG[rank];
+            }
+        }
+    }
+ 
+    for(int row = 0; row < 8; row++){
+        for(int col = 0; col < 8; col++){
+            int piece = board[row][col];
+            if(abs(piece) != 4) continue;
+ 
+            bool isWhite = piece > 0;
+            bool noFriendly = isWhite ? (whitePawns[col] == 0) : (blackPawns[col] == 0);
+            bool noEnemy    = isWhite ? (blackPawns[col] == 0) : (whitePawns[col] == 0);
+ 
+            int mg = 0, eg = 0;
+            if(noFriendly && noEnemy){ mg = rookOpenMG; eg = rookOpenEG; }
+            else if(noFriendly)      { mg = rookSemiMG; eg = rookSemiEG; }
+ 
+            if(isWhite){ mgStructure += mg; egStructure += eg; }
+            else       { mgStructure -= mg; egStructure -= eg; }
+        }
+    }
+ 
+    if(whiteBishops >= 2){ mgStructure += bishopPairMG; egStructure += bishopPairEG; }
+    if(blackBishops >= 2){ mgStructure -= bishopPairMG; egStructure -= bishopPairEG; }
+ 
 
-        
+    if(phase > 8){
+ 
         auto pawnShield = [&](int kingRow, int kingCol, bool kingIsWhite) -> int {
-            int shield = 0;
-            int dir    = kingIsWhite ? -1 : 1; 
-            int pawn   = kingIsWhite ?  1 : -1;
-
+            int mg = 0;
+            int dir  = kingIsWhite ? -1 : 1;  // direction toward own pawns
+            int pawn = kingIsWhite ?  1 : -1;
+ 
             for(int dc = -1; dc <= 1; dc++){
                 int c = kingCol + dc;
                 if(c < 0 || c > 7) continue;
-               
+ 
                 int r1 = kingRow + dir;
-                if(r1 >= 0 && r1 < 8 && get_piece(r1, c) == pawn) shield += 10;
-                
-                int r2 = kingRow + 2*dir;
-                if(r2 >= 0 && r2 < 8 && get_piece(r2, c) == pawn) shield += 5;
+                if(r1 >= 0 && r1 < 8 && board[r1][c] == pawn) mg += shieldClose;
+ 
+                int r2 = kingRow + 2 * dir;
+                if(r2 >= 0 && r2 < 8 && board[r2][c] == pawn) mg += shieldFar;
+ 
+                bool noFriendly = kingIsWhite ? (whitePawns[c] == 0)
+                                              : (blackPawns[c] == 0);
+                bool noEnemy    = kingIsWhite ? (blackPawns[c] == 0)
+                                              : (whitePawns[c] == 0);
+                if(noFriendly && noEnemy) mg -= openFilePenalty;
+                else if(noFriendly)       mg -= openFilePenalty / 2;
             }
-            return shield;
+            return mg;
         };
-
-        if(whiteKingRow != -1) score += pawnShield(whiteKingRow, whiteKingCol, true);
-        if(blackKingRow != -1) score -= pawnShield(blackKingRow, blackKingCol, false);
-
-        
-        auto kingOpenFilePenalty = [&](int kingCol, bool kingIsWhite) -> int {
-            int penalty = 0;
-            for(int dc = -1; dc <= 1; dc++){
-                int c = kingCol + dc;
-                if(c < 0 || c > 7) continue;
-                bool noFriendly = (kingIsWhite ? whitePawns[c] : blackPawns[c]) == 0;
-                bool noEnemy    = (kingIsWhite ? blackPawns[c] : whitePawns[c]) == 0;
-                if(noFriendly && noEnemy) penalty += 20; 
-                else if(noFriendly)      penalty += 10; 
-            }
-            return penalty;
-        };
-
-        if(whiteKingRow != -1) score -= kingOpenFilePenalty(whiteKingCol, true);
-        if(blackKingRow != -1) score += kingOpenFilePenalty(blackKingCol, false);
+ 
+        int wShield = pawnShield(whiteKingRow, whiteKingCol, true);
+        int bShield = pawnShield(blackKingRow, blackKingCol, false);
+ 
+  
+        int kingSafetyPhase = phase - 8;  
+        mgStructure += (wShield - bShield) * kingSafetyPhase / 16;
     }
-
+ 
+    mgScore += mgStructure;
+    egScore += egStructure;
+ 
+    int score = (mgScore * phase + egScore * (24 - phase)) / 24;
+ 
     return score;
 }
 

@@ -18,6 +18,7 @@ enum NodeType{
 };
 
 struct TTEntry{
+    uint64_t key;
     int depth;
     int score;
     int generation;
@@ -30,17 +31,19 @@ class Engine{
 private:
     TimePoint searchStart;
 
-    int       timeLimitMs = -1;
+    int timeLimitMs = -1;
 
-    bool      outOfTime   = false;
+    bool outOfTime = false;
 
-    bool      check_time();
+    bool check_time();
 
     int nullMoveCuts = 0;
 
     int get_mvv_lva(Board& board,const Move& m);
 
-    std::unordered_map<uint64_t,TTEntry> tt; //transposition table
+    static const int TT_SIZE = 1 << 22;
+
+    TTEntry* tt = nullptr;
 
     Move killerMoves[max_ply][2];
 
