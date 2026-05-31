@@ -1,6 +1,7 @@
-trying to make a chess engine
+Made a chess engine
 
 TODO:
--Improve quiscence and search in general as much as possible
-
--switch from 8x8 array to bitboard representation
+-rewrite for bitboard representation
+-implement NNUE for eval
+-implement PV search
+-maybe do mutlithreading for search
